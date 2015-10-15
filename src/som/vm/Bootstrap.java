@@ -300,8 +300,8 @@ public final class Bootstrap {
    * Allocate the metaclass class.
    */
   public static SClass newMetaclassClass(final SObject kernel) {
-    SClass metaclassClass      = new SClass(kernel); // class obj for "Metaclass"
-    SClass metaclassClassClass = new SClass(kernel); // class obj for "Metaclass class"
+    SClass metaclassClass      = new SClass(kernel);
+    SClass metaclassClassClass = new SClass(kernel);
     metaclassClass.setClass(metaclassClassClass);
 
     metaclassClass.initializeClass(Symbols.METACLASS, null);
@@ -345,7 +345,9 @@ public final class Bootstrap {
     MixinDefinition classDef     = kernelModule.getNestedMixinDefinition("Class");
     MixinDefinition metaclassDef = kernelModule.getNestedMixinDefinition("Metaclass");
 
+    MixinDefinition arrayReadMixinDef = kernelModule.getNestedMixinDefinition("ArrayReadMixin");
     MixinDefinition arrayDef   = kernelModule.getNestedMixinDefinition("Array");
+    MixinDefinition valueArrayDef = kernelModule.getNestedMixinDefinition("ValueArray");
     MixinDefinition symbolDef  = kernelModule.getNestedMixinDefinition("Symbol");
     MixinDefinition integerDef = kernelModule.getNestedMixinDefinition("Integer");
     MixinDefinition stringDef  = kernelModule.getNestedMixinDefinition("String");
@@ -371,10 +373,13 @@ public final class Bootstrap {
      valueDef.initializeClass(Classes.valueClass,  Classes.thingClass, true);
     objectDef.initializeClass(Classes.objectClass, Classes.thingClass);
      classDef.initializeClass(Classes.classClass,  Classes.objectClass);
+
  metaclassDef.initializeClass(Classes.metaclassClass, Classes.classClass);
        nilDef.initializeClass(Classes.nilClass,    Classes.valueClass);
 
-     arrayDef.initializeClass(Classes.arrayClass,   Classes.objectClass);
+arrayReadMixinDef.initializeClass(Classes.arrayReadMixinClass, Classes.objectClass);
+     arrayDef.initializeClass(Classes.arrayClass,   new SClass[] {Classes.objectClass, Classes.arrayReadMixinClass});
+valueArrayDef.initializeClass(Classes.valueArrayClass, new SClass[] {Classes.valueClass, Classes.arrayReadMixinClass});
    integerDef.initializeClass(Classes.integerClass, Classes.valueClass);
     stringDef.initializeClass(Classes.stringClass,  Classes.valueClass);
     doubleDef.initializeClass(Classes.doubleClass,  Classes.valueClass);
@@ -390,6 +395,30 @@ public final class Bootstrap {
     block3Def.initializeClass(Classes.blockClass3, Classes.blockClass2);
 
     Nil.nilObject.setClass(Classes.nilClass);
+
+    // fix up the metaclassClass group
+    Classes.topClass.getSOMClass().setClassGroup(Classes.metaclassClass.getInstanceFactory());
+  Classes.thingClass.getSOMClass().setClassGroup(Classes.metaclassClass.getInstanceFactory());
+  Classes.valueClass.getSOMClass().setClassGroup(Classes.metaclassClass.getInstanceFactory());
+ Classes.objectClass.getSOMClass().setClassGroup(Classes.metaclassClass.getInstanceFactory());
+  Classes.classClass.getSOMClass().setClassGroup(Classes.metaclassClass.getInstanceFactory());
+  Classes.metaclassClass.getSOMClass().setClassGroup(Classes.metaclassClass.getInstanceFactory());
+  Classes.nilClass.getSOMClass().setClassGroup(Classes.metaclassClass.getInstanceFactory());
+  Classes.arrayReadMixinClass.getSOMClass().setClassGroup(Classes.metaclassClass.getInstanceFactory());
+  Classes.arrayClass.getSOMClass().setClassGroup(Classes.metaclassClass.getInstanceFactory());
+  Classes.valueArrayClass.getSOMClass().setClassGroup(Classes.metaclassClass.getInstanceFactory());
+  Classes.integerClass.getSOMClass().setClassGroup(Classes.metaclassClass.getInstanceFactory());
+  Classes.stringClass.getSOMClass().setClassGroup(Classes.metaclassClass.getInstanceFactory());
+  Classes.doubleClass.getSOMClass().setClassGroup(Classes.metaclassClass.getInstanceFactory());
+  Classes.symbolClass.getSOMClass().setClassGroup(Classes.metaclassClass.getInstanceFactory());
+  Classes.booleanClass.getSOMClass().setClassGroup(Classes.metaclassClass.getInstanceFactory());
+  Classes.trueClass.getSOMClass().setClassGroup(Classes.metaclassClass.getInstanceFactory());
+  Classes.falseClass.getSOMClass().setClassGroup(Classes.metaclassClass.getInstanceFactory());
+  Classes.blockClass.getSOMClass().setClassGroup(Classes.metaclassClass.getInstanceFactory());
+  Classes.blockClass1.getSOMClass().setClassGroup(Classes.metaclassClass.getInstanceFactory());
+  Classes.blockClass2.getSOMClass().setClassGroup(Classes.metaclassClass.getInstanceFactory());
+  Classes.blockClass3.getSOMClass().setClassGroup(Classes.metaclassClass.getInstanceFactory());
+
 
     SClass kernelClass = kernelModule.instantiateClass(Nil.nilObject, Classes.objectClass);
     KernelObj.kernel.setClass(kernelClass);
@@ -419,7 +448,9 @@ public final class Bootstrap {
     setSlot(KernelObj.kernel, "Class",     Classes.classClass,     kernelModule);
     setSlot(KernelObj.kernel, "String",    Classes.stringClass,    kernelModule);
     setSlot(KernelObj.kernel, "Symbol",    Classes.symbolClass,    kernelModule);
+    setSlot(KernelObj.kernel, "ArrayReadMixin", Classes.arrayReadMixinClass, kernelModule);
     setSlot(KernelObj.kernel, "Array",     Classes.arrayClass,     kernelModule);
+    setSlot(KernelObj.kernel, "ValueArray", Classes.valueArrayClass, kernelModule);
     setSlot(KernelObj.kernel, "Block",     Classes.blockClass,     kernelModule);
     setSlot(KernelObj.kernel, "Block1",    Classes.blockClass1,    kernelModule);
     setSlot(KernelObj.kernel, "Block2",    Classes.blockClass2,    kernelModule);
@@ -445,7 +476,7 @@ public final class Bootstrap {
     Object returnCode = disp.invoke(platform);
 
     if (VM.isUsingActors()) {
-      mainActor.enqueueNextMessageForProcessing();
+      mainActor.relinuqishMainThreadAndMoveExecutionToPool();
       VM.setMainThread(Thread.currentThread());
 
       int emptyFJPool = 0;

@@ -10,7 +10,7 @@ import som.interpreter.Method;
 import som.interpreter.nodes.nary.UnaryExpressionNode;
 import som.vm.Bootstrap;
 import som.vm.constants.Nil;
-import som.vmobjects.SArray;
+import som.vmobjects.SArray.SImmutableArray;
 import som.vmobjects.SObjectWithClass;
 import som.vmobjects.SSymbol;
 
@@ -133,7 +133,7 @@ public final class SystemPrims {
       });
 
       for (int i = method.size() - 1; i >= 0; i--) {
-        VM.print(String.format("%1$-" + (maxLengthMethod[0] + 4) + "s",
+        VM.print(String.format("\t%1$-" + (maxLengthMethod[0] + 4) + "s",
           method.get(i)));
         VM.println(location.get(i));
       }
@@ -144,8 +144,8 @@ public final class SystemPrims {
   @Primitive("vmArguments:")
   public abstract static class VMArgumentsPrim extends UnaryExpressionNode {
     @Specialization
-    public final SArray getArguments(final Object receiver) {
-      return new SArray(true, VM.getArguments());
+    public final SImmutableArray getArguments(final Object receiver) {
+      return new SImmutableArray(VM.getArguments());
     }
   }
 

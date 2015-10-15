@@ -60,7 +60,7 @@ public abstract class EventualSendNode extends ExpressionNode {
 
       DirectMessage msg = new DirectMessage(current, selector, args, current,
           resolver);
-      current.enqueueMessage(msg);
+      current.send(msg);
 
       return result;
     }
@@ -84,7 +84,7 @@ public abstract class EventualSendNode extends ExpressionNode {
 
     DirectMessage msg = new DirectMessage(target, selector, args, owner,
         resolver);
-    target.enqueueMessage(msg);
+    target.send(msg);
   }
 
 

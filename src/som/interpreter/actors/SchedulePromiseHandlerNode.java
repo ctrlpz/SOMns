@@ -25,7 +25,7 @@ public abstract class SchedulePromiseHandlerNode extends Node {
       PromiseCallbackMessage msg = (PromiseCallbackMessage) message;
       msg.args[PromiseMessage.PROMISE_VALUE_IDX] =
           msg.originalSender.wrapForUse(promise.getValueUnsync(), current);
-      msg.originalSender.enqueueMessage(msg);
+      msg.originalSender.send(msg);
       return;
     }
 
@@ -57,6 +57,6 @@ public abstract class SchedulePromiseHandlerNode extends Node {
     msg.target      = finalTarget; // for sends to far references, we need to adjust the target
     msg.finalSender = current;
 
-    finalTarget.enqueueMessage(msg);
+    finalTarget.send(msg);
   }
 }

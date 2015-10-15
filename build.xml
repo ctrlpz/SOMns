@@ -24,6 +24,12 @@
         <delete dir="${src_gen.dir}"/>
     </target>
     
+    <target name="clobber" description="Do clean, and also clean truffle build" depends="clean">
+        <exec executable="../mxtool/mx" dir="${truffle.dir}">
+            <arg value="clean"/>
+        </exec>
+    </target>
+    
     <target name="check-core-lib-available">
         <available file="core-lib/.git" property="core-lib.present"/>
     </target>
@@ -35,16 +41,9 @@
         <arg value="--init" />
       </exec>
     </target>
-    
-    <!-- Work around for issue with non-existing env file -->
-    <target name="truffle-env">
-        <exec executable="touch">
-            <arg value="${truffle.dir}/mx.truffle/env"/>
-        </exec>
-    </target>
-    
-    <target name="truffle-libs" depends="truffle-env">
-        <exec executable="./mx.sh" dir="${truffle.dir}">
+
+    <target name="truffle-libs" >
+        <exec executable="../mxtool/mx" dir="${truffle.dir}">
             <arg value="build"/>
         </exec>
     </target>

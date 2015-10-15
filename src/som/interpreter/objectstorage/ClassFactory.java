@@ -6,10 +6,7 @@ import java.util.HashSet;
 import som.VM;
 import som.compiler.MixinDefinition;
 import som.compiler.MixinDefinition.SlotDefinition;
-import som.interpreter.LexicalScope.MixinScope;
 import som.interpreter.nodes.dispatch.Dispatchable;
-import som.vm.Symbols;
-import som.vm.constants.Classes;
 import som.vmobjects.SClass;
 import som.vmobjects.SSymbol;
 
@@ -17,7 +14,7 @@ import com.oracle.truffle.api.CompilerDirectives;
 
 
 /**
- * A ClassFactory creates instances for classes with a concrete super class
+ * A ClassFactory creates SClass objects based on a concrete super class
  * and a specific set of mixins.
  */
 public final class ClassFactory {
@@ -31,57 +28,65 @@ public final class ClassFactory {
 //  we could create a special slot-access dispatch node in the message dispatch chain, that will only check the layout, not the class
 //
 //      the problem there would be that we probably can't remove old layouts from chains, as we do now
-//      the benefit is that we can already during createion use the layout, and
+//      the benefit is that we can already during creation use the layout, and
 //      reuse it
 //      and the logic to determine whether all slots are immutable
 //      and all new objects always use the initialized shapes
 //
   // identity criteria
   private final SClass[] superclassAndMixins;
-  private final boolean  isValueClass;
+  private final boolean  isDeclaredAsValue;
 
   // properties of this group of classes
   private final SSymbol className;
-  private final SSymbol classClassName;
 
-  private final MixinScope      classScope;
   private final MixinDefinition mixinDef;
 
   private final HashSet<SlotDefinition>        instanceSlots;
   private final HashMap<SSymbol, Dispatchable> dispatchables;
 
-  private final boolean isModule;
   private final boolean hasOnlyImmutableFields;
 
   // TODO: does it make sense to make it compilation final?
   //       think, it should only be accessed on the slow path
   private ObjectLayout instanceLayout;
 
-  public ClassFactory(final SSymbol name, final MixinScope classScope,
-      final MixinDefinition mixinDef, final HashSet<SlotDefinition> instanceSlots,
-      final HashMap<SSymbol, Dispatchable> dispatchables, final boolean isModule,
-      final SClass[] superclassAndMixins, final boolean hasOnlyImmutableFields,
-      final boolean isValueClass) {
+  private final ClassFactory classClassFactory;
+
+  public ClassFactory(final SSymbol name, final MixinDefinition mixinDef,
+      final HashSet<SlotDefinition> instanceSlots,
+      final HashMap<SSymbol, Dispatchable> dispatchables,
+      final boolean declaredAsValue, final SClass[] superclassAndMixins,
+      final boolean hasOnlyImmutableFields,
+      final ClassFactory classClassFactory) {
     assert instanceSlots == null || instanceSlots.size() > 0;
 
-    className       = name;
-    classClassName  = Symbols.symbolFor(name.getString() + " class");
-    this.classScope = classScope;
+    this.className  = name;
     this.mixinDef   = mixinDef;
     this.instanceSlots = instanceSlots;
     this.dispatchables = dispatchables;
-    this.isModule   = isModule;
+    this.isDeclaredAsValue = declaredAsValue;
 
     this.hasOnlyImmutableFields = hasOnlyImmutableFields;
 
     this.superclassAndMixins = superclassAndMixins;
-    this.isValueClass        = isValueClass;
 
     VM.callerNeedsToBeOptimized("instanceLayout should only be accessed on slow path. (and ClassFactory should only be instantiated on slowpath, too)");
     this.instanceLayout = (instanceSlots == null) ? null : new ObjectLayout(instanceSlots, this);
+
+    this.classClassFactory = classClassFactory;
+  }
+
+  public SSymbol getClassName() {
+    return className;
+  }
+
+  public ClassFactory getClassClassFactory() {
+    return classClassFactory;
   }
 
   public ObjectLayout getInstanceLayout() {
+    VM.callerNeedsToBeOptimized("Should not be called on fast path");
     return instanceLayout;
   }
 
@@ -93,20 +98,14 @@ public final class ClassFactory {
     return hasOnlyImmutableFields;
   }
 
+  public SClass[] getSuperclassAndMixins() {
+    return superclassAndMixins;
+  }
+
   public void initializeClass(final SClass result) {
     result.initializeClass(className, superclassAndMixins[0]);
     result.initializeStructure(mixinDef, instanceSlots,
-        dispatchables, isValueClass, this);
-    initializeClassClass(result);
-  }
-
-  private void initializeClassClass(final SClass result) {
-    // Initialize the class of the resulting class
-    if (result.getSOMClass() != null) {
-      SClass classClass = result.getSOMClass();
-      classClass.initializeClass(classClassName, Classes.classClass);
-      classClass.initializeStructure(mixinDef, null, classScope.getDispatchables(), isModule, null);
-    }
+        dispatchables, isDeclaredAsValue, this);
   }
 
   public synchronized ObjectLayout updateInstanceLayoutWithInitializedField(
@@ -129,5 +128,10 @@ public final class ClassFactory {
       instanceLayout = updated;
     }
     return instanceLayout;
+  }
+
+  @Override
+  public String toString() {
+    return "ClsFct[" + className.getString() + "]";
   }
 }

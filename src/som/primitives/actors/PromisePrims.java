@@ -33,7 +33,7 @@ public final class PromisePrims {
   @Primitive("actorsCreatePromisePair:")
   public abstract static class CreatePromisePairPrim extends UnaryExpressionNode {
 
-    protected final DirectCallNode create() {
+    protected static final DirectCallNode create() {
       Dispatchable disp = SPromise.pairClass.getSOMClass().lookupMessage(withAndFactory, AccessModifier.PUBLIC);
       return Truffle.getRuntime().createDirectCallNode(disp.getCallTarget());
     }

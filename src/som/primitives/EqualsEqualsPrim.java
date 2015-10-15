@@ -1,7 +1,8 @@
 package som.primitives;
 
+import som.interpreter.actors.SFarReference;
 import som.interpreter.nodes.nary.BinaryExpressionNode;
-import som.vmobjects.SArray;
+import som.vmobjects.SArray.SMutableArray;
 import som.vmobjects.SBlock;
 import som.vmobjects.SInvokable;
 import som.vmobjects.SObjectWithClass;
@@ -20,7 +21,7 @@ public abstract class EqualsEqualsPrim extends BinaryExpressionNode {
   }
 
   @Specialization
-  public final boolean doArray(final SArray left, final Object right) {
+  public final boolean doArray(final SMutableArray left, final Object right) {
     return left == right;
   }
 
@@ -32,5 +33,19 @@ public abstract class EqualsEqualsPrim extends BinaryExpressionNode {
   @Specialization
   public final boolean doSObject(final SObjectWithClass left, final Object right) {
     return left == right;
+  }
+
+  @Specialization
+  public final boolean doSFarReference(final SFarReference left, final SFarReference right) {
+    return left.getValue() == right.getValue();
+  }
+
+  protected static final boolean notFarReference(final Object obj) {
+    return !(obj instanceof SFarReference);
+  }
+
+  @Specialization(guards = "notFarReference(right)")
+  public final boolean doFarRefAndObj(final SFarReference left, final Object right) {
+    return false;
   }
 }
