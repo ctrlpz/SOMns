@@ -9,27 +9,9 @@ var data = {};
  * @constructor
  */
 function SourceSection() {
-  this.id         = "";
   this.firstIndex = 0;
-  this.length     = 0;
-  this.identifier = "";
-  this.line       = 0;
-  this.column     = 0;
-  this.description = 0;
-  this.sourceId   = "";
-}
-
-/**
- * Dummy definition for IDE support. These objects are
- * generally read from the web socket connection.
- * @constructor
- */
-function Source() {
-  this.id         = "";
   this.sourceText = "";
-  this.mimeType   = "";
-  this.name       = "";
-  this.uri        = "";
+  this.shortName  = "";
 }
 
 /**
@@ -100,11 +82,13 @@ function handleFileSelect(e) {
   }
 }
 
-function Breakpoint(source) {
-  this.type     = "abstract-breakpoint";
-  this.source   = source;
-  this.enabled  = false;
-  this.checkbox = null;
+function Breakpoint(source, line, lineNumSpan) {
+  this.type = "lineBreakpoint";
+  this.source      = source;
+  this.line        = line;
+  this.enabled     = false;
+  this.lineNumSpan = lineNumSpan;
+  this.checkbox    = null;
 }
 
 Breakpoint.prototype.toggle = function () {
@@ -115,65 +99,18 @@ Breakpoint.prototype.isEnabled = function () {
   return this.enabled;
 };
 
-/**
- * @returns a unique id (for the corresponding source)
- */
-Breakpoint.prototype.getId = function () {
-  return null;
-};
-
-/**
- * @returns object for JSON serialization
- */
-Breakpoint.prototype.toJsonObj = function () {
-  return {
-    type:       this.type,
-    sourceUri:  this.source.uri,
-    enabled:    this.isEnabled()
-  };
-};
-
-function LineBreakpoint(source, line, lineNumSpan) {
-  Breakpoint.call(this, source);
-
-  this.type        = "lineBreakpoint";
-  this.line        = line;
-  this.lineNumSpan = lineNumSpan;
-}
-LineBreakpoint.prototype = Object.create(Breakpoint.prototype);
-
-LineBreakpoint.prototype.getId = function () {
-  return this.line;
-};
-
-LineBreakpoint.prototype.toJsonObj = function () {
-  var obj = Breakpoint.prototype.toJsonObj.call(this);
-  obj.line = this.line;
-  return obj;
-};
-
-function SendBreakpoint(source, sourceSection) {
-  Breakpoint.call(this, source);
-
+function SendBreakpoint(id) {
   this.type = "sendBreakpoint";
-  this.sectionId   = sourceSection.id;
-  this.startLine   = sourceSection.line;
-  this.startColumn = sourceSection.column;
-  this.charLength  = sourceSection.length;
+  this.id = id;
+  this.enabled = false;
 }
-SendBreakpoint.prototype = Object.create(Breakpoint.prototype);
 
-SendBreakpoint.prototype.getId = function () {
-  return this.sectionId;
+SendBreakpoint.prototype.toggle = function () {
+  this.enabled = !this.enabled;
 };
 
-SendBreakpoint.prototype.toJsonObj = function () {
-  var obj = Breakpoint.prototype.toJsonObj.call(this);
-  obj.sectionId   = this.sectionId;
-  obj.startLine   = this.startLine;
-  obj.startColumn = this.startColumn;
-  obj.charLength  = this.charLength;
-  return obj;
+SendBreakpoint.prototype.isEnabled = function () {
+  return this.enabled;
 };
 
 function handleDragOver(evt) {
@@ -192,9 +129,8 @@ function dbgLog(msg) {
 function Debugger() {
   this.suspended = false;
   this.lastSuspendEventId = null;
-  this.sourceObjects  = {};
-  this.sectionObjects = {};
-  this.breakpoints    = {};
+  this.sourceObjects = {};
+  this.breakpoints = {};
 }
 
 Debugger.prototype.getSource = function (id) {
@@ -206,31 +142,21 @@ Debugger.prototype.getSource = function (id) {
   return null;
 };
 
-Debugger.prototype.getSection = function (id) {
-  return this.sectionObjects[id];
-};
-
 Debugger.prototype.addSources = function (msg) {
   for (var sId in msg.sources) {
     this.sourceObjects[msg.sources[sId].name] = msg.sources[sId];
   }
 };
 
-Debugger.prototype.addSections = function (msg) {
-  for (let ssId in msg.sections) {
-    this.sectionObjects[ssId] = msg.sections[ssId];
-  }
-};
-
-Debugger.prototype.getBreakpoint = function (source, key, newBp) {
+Debugger.prototype.getBreakpoint = function (source, line, clickedSpan) {
   if (!this.breakpoints[source.name]) {
     this.breakpoints[source.name] = {};
   }
 
-  var bp = this.breakpoints[source.name][key];
+  var bp = this.breakpoints[source.name][line];
   if (!bp) {
-    bp = newBp(source);
-    this.breakpoints[source.name][key] = bp;
+    bp = new Breakpoint(source, line, clickedSpan);
+    this.breakpoints[source.name][line] = bp;
   }
   return bp;
 };

@@ -1,8 +1,7 @@
 package tools.debugger;
 
+import java.io.IOException;
 import java.net.InetSocketAddress;
-import java.net.URI;
-import java.net.URISyntaxException;
 import java.util.concurrent.CompletableFuture;
 
 import org.java_websocket.WebSocket;
@@ -13,20 +12,20 @@ import com.eclipsesource.json.Json;
 import com.eclipsesource.json.JsonArray;
 import com.eclipsesource.json.JsonObject;
 import com.eclipsesource.json.JsonValue;
+import com.oracle.truffle.api.debug.Breakpoint;
 import com.oracle.truffle.api.debug.SuspendedEvent;
+import com.oracle.truffle.api.source.LineLocation;
+import com.oracle.truffle.api.source.Source;
 
 class WebSocketHandler extends WebSocketServer {
   private static final int NUM_THREADS = 1;
 
   private final CompletableFuture<WebSocket> clientConnected;
-  private final FrontendConnector connector;
 
   WebSocketHandler(final InetSocketAddress address,
-      final CompletableFuture<WebSocket> clientConnected,
-      final FrontendConnector connector) {
+      final CompletableFuture<WebSocket> clientConnected) {
     super(address, NUM_THREADS);
     this.clientConnected = clientConnected;
-    this.connector = connector;
   }
 
   @Override
@@ -39,39 +38,60 @@ class WebSocketHandler extends WebSocketServer {
   }
 
   private void processBreakpoint(final JsonObject obj) {
-    String type = obj.getString("type", null);
-    URI uri = null;
-    try {
-      uri = new URI(obj.getString("sourceUri", null));
-    } catch (URISyntaxException e) {
-      throw new RuntimeException(e);
-    }
-
-    boolean enabled = obj.getBoolean("enabled", false);
-
+    String type =  obj.getString("type", null);
     switch (type) {
       case "lineBreakpoint":
-        processLineBreakpoint(obj, uri, enabled);
+        processLineBreakpoint(obj);
         break;
       case "sendBreakpoint":
-        processSendBreakpoint(obj, uri, enabled);
+        processSendBreakpoint(obj);
         break;
     }
   }
 
-  private void processSendBreakpoint(final JsonObject obj, final URI sourceUri,
-      final boolean enabled) {
-    int startLine   = obj.getInt("startLine",   -1);
-    int startColumn = obj.getInt("startColumn", -1);
-    int charLength  = obj.getInt("charLength",  -1);
+  private void processSendBreakpoint(final JsonObject obj) {
+    String sourceSectionId   = obj.getString("id", null);
 
-    connector.requestBreakpoint(enabled, sourceUri, startLine, startColumn, charLength);
+    //create debugger manager
+
+    //enable breakpoint in AST node
+    //use meanwhile with the line number
+
   }
 
-  private void processLineBreakpoint(final JsonObject obj, final URI sourceUri,
-      final boolean enabled) {
-    int lineNumber = obj.getInt("line", -1);
-    connector.requestBreakpoint(enabled, sourceUri, lineNumber);
+  private void processLineBreakpoint(final JsonObject obj) {
+    String sourceId   = obj.getString("sourceId", null);
+    String sourceName = obj.getString("sourceName", null);
+    int lineNumber    = obj.getInt("line", -1);
+    boolean enabled   = obj.getBoolean("enabled", false);
+    WebDebugger.log(sourceId + ":" + lineNumber + " " + enabled);
+
+    Source source = JsonSerializer.getSource(sourceId);
+    if (source == null) {
+      // this can happen when restoring breakpoints on load and sources are
+      // not yet loaded
+      source = Source.find(sourceName);
+    } else {
+      assert source.getName().equals(sourceName) :
+        "Filenames of source by id and known name should match, probably should handle this case";
+    }
+
+    LineLocation line = source.createLineLocation(lineNumber);
+
+    assert WebDebugger.truffleDebugger != null : "debugger has not be initialized yet";
+    Breakpoint bp = WebDebugger.truffleDebugger.getBreakpoint(line);
+
+    if (enabled && bp == null) {
+      try {
+        WebDebugger.log("SetLineBreakpoint line:" + line);
+        Breakpoint newBp = WebDebugger.truffleDebugger.setLineBreakpoint(0, line, false);
+        assert newBp != null;
+      } catch (IOException e) {
+        e.printStackTrace();
+      }
+    } else if (bp != null) {
+      bp.setEnabled(enabled);
+    }
   }
 
   @Override
@@ -97,7 +117,7 @@ class WebSocketHandler extends WebSocketServer {
       case "resume":
       case "stop": {
         String id = msg.getString("suspendEvent", null);
-        SuspendedEvent event = connector.getSuspendedEvent(id);
+        SuspendedEvent event = WebDebugger.suspendEvents.get(id);
         assert event != null : "didn't find SuspendEvent";
 
         switch (msg.getString("action", null)) {
@@ -107,7 +127,7 @@ class WebSocketHandler extends WebSocketServer {
           case "resume":   event.prepareContinue();  break;
           case "stop":     event.prepareKill();      break;
         }
-        connector.completeSuspendFuture(id, new Object());
+        WebDebugger.suspendFutures.get(id).complete(new Object());
         return;
       }
     }
