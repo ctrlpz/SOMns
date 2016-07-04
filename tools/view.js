@@ -14,26 +14,21 @@ function Begin(section) {
   this.section = section;
   this.type    = Begin;
 }
-
 Begin.prototype.toString = function () {
   return '<span id="' + this.section.id + '" class="' + this.section.tags.join(" ") + '">';
 };
-
 function End(section) {
   this.section = section;
   this.type    = End;
 }
-
 End.prototype.toString = function () {
   return '</span>';
 };
-
 function Annotation(char) {
   this.char   = char;
   this.before = [];
   this.after  = [];
 }
-
 Annotation.prototype.toString = function() {
   this.before.sort(function (a, b) {
     if (a.section.type !== b.section.type) {
@@ -118,7 +113,7 @@ function showSource(s, sections) {
   var tabListEntry = document.getElementById(s.id),
     aElem = document.getElementById("a" + s.id);
   if (tabListEntry) {
-    if (aElem.innerText !== s.name) {
+    if (aElem.innerText !== s.shortName) {
       $(tabListEntry).remove();
       $(aElem).remove();
       tabListEntry = null;
@@ -138,7 +133,7 @@ function showSource(s, sections) {
     aElem = $(tabListEntry).find("a");
     aElem.attr("href", "#" + s.id);
     aElem.attr("id", "a" + s.id);
-    aElem.text(s.name);
+    aElem.text(s.shortName);
     $("#tabs").append(tabListEntry);
   }
 
@@ -429,7 +424,7 @@ View.prototype.ensureBreakpointListEntry = function (breakpoint) {
   entry.setAttribute("id", bpId);
 
   var tds = $(entry).find("td");
-  tds[0].innerHTML = breakpoint.source.name;
+  tds[0].innerHTML = breakpoint.source.shortName;
   tds[1].innerHTML = breakpoint.getId();
 
   breakpoint.checkbox = $(entry).find("input");
@@ -458,7 +453,7 @@ View.prototype.updateLineBreakpoint = function (bp) {
 };
 
 View.prototype.updateSendBreakpoint = function (bp) {
-  var bpSpan = $("#" + bp.sectionId);
+  var bpSpan = $("#"+bp.id);
   this.updateBreakpoint(bp, bpSpan, "send-breakpoint-active");
 };
 
