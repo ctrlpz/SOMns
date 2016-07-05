@@ -33,6 +33,7 @@ import som.vmobjects.SObject.SImmutableObject;
 import som.vmobjects.SObject.SMutableObject;
 import som.vmobjects.SObjectWithClass.SObjectWithoutFields;
 import som.vmobjects.SSymbol;
+import tools.debugger.WebDebugger;
 import tools.dym.Tags.OpComparison;
 
 
