@@ -17,7 +17,6 @@ import org.java_websocket.WebSocket;
 import com.oracle.truffle.api.debug.Debugger;
 import com.oracle.truffle.api.debug.ExecutionEvent;
 import com.oracle.truffle.api.debug.SuspendedEvent;
-import com.oracle.truffle.api.frame.MaterializedFrame;
 import com.oracle.truffle.api.instrumentation.Instrumenter;
 import com.oracle.truffle.api.instrumentation.TruffleInstrument;
 import com.oracle.truffle.api.instrumentation.TruffleInstrument.Registration;
@@ -32,7 +31,6 @@ import som.interpreter.actors.Actor;
 import som.interpreter.actors.EventualMessage;
 import som.interpreter.actors.SFarReference;
 import tools.ObjectBuffer;
-import tools.actors.ActorExecutionTrace;
 import tools.highlight.Tags;
 
 
@@ -47,18 +45,22 @@ public class WebDebugger extends TruffleInstrument {
 
   private HttpServer httpServer;
   private WebSocketHandler webSocketServer;
-  private Future<WebSocket> clientConnected;
+  private static Future<WebSocket> clientConnected;
 
-  private Instrumenter instrumenter;
+  private static Instrumenter instrumenter;
 
-  private final Map<Source, Map<SourceSection, Set<Class<? extends Tags>>>> loadedSourcesTags = new HashMap<>();
-  private final Map<Source, Set<RootNode>> rootNodes = new HashMap<>();
+  private static final Map<Source, Map<SourceSection, Set<Class<? extends Tags>>>> loadedSourcesTags = new HashMap<>();
+  private static final Map<Source, Set<RootNode>> rootNodes = new HashMap<>();
 
-  private WebSocket client;
-  private Debugger truffleDebugger;
-  private Breakpoints breakpoints;
+  private static WebDebugger debugger;
+  private static WebSocket client;
+  static Debugger truffleDebugger;
 
-  public void reportSyntaxElement(final Class<? extends Tags> type,
+  public WebDebugger() {
+    debugger = this;
+  }
+
+  public static void reportSyntaxElement(final Class<? extends Tags> type,
       final SourceSection source) {
     Map<SourceSection, Set<Class<? extends Tags>>> sections = loadedSourcesTags.computeIfAbsent(
         source.getSource(), s -> new HashMap<>());
@@ -69,10 +71,10 @@ public class WebDebugger extends TruffleInstrument {
     JsonSerializer.createSourceSectionId(source);
   }
 
-  private final ArrayList<Source> notReady = new ArrayList<>();
+  private static final ArrayList<Source> notReady = new ArrayList<>();
 
-  public void reportLoadedSource(final Source source) {
-    if (webSocketServer == null || client == null) {
+  public static void reportLoadedSource(final Source source) {
+    if (debugger == null || debugger.webSocketServer == null || client == null) {
       notReady.add(source);
       return;
     }
@@ -91,13 +93,15 @@ public class WebDebugger extends TruffleInstrument {
     client.send(json);
   }
 
-  private void ensureConnectionIsAvailable() {
-    assert webSocketServer != null;
+  private static void ensureConnectionIsAvailable() {
+    assert debugger != null;
+    assert debugger.webSocketServer != null;
     assert client != null;
+
     assert client.isOpen();
   }
 
-  public void reportRootNodeAfterParsing(final RootNode rootNode) {
+  public static void reportRootNodeAfterParsing(final RootNode rootNode) {
     assert rootNode.getSourceSection() != null : "RootNode without source section";
     Set<RootNode> roots = rootNodes.computeIfAbsent(
         rootNode.getSourceSection().getSource(), s -> new HashSet<>());
@@ -105,8 +109,8 @@ public class WebDebugger extends TruffleInstrument {
     roots.add(rootNode);
   }
 
-  public void reportExecutionEvent(final ExecutionEvent e) {
-    assert truffleDebugger == e.getDebugger();
+  public static void reportExecutionEvent(final ExecutionEvent e) {
+    truffleDebugger = e.getDebugger();
 
     assert clientConnected != null;
     log("[DEBUGGER] Waiting for debugger to connect.");
@@ -119,25 +123,18 @@ public class WebDebugger extends TruffleInstrument {
     log("[DEBUGGER] Debugger connected.");
   }
 
-  private int nextSuspendEventId = 0;
-  private final Map<String, SuspendedEvent> suspendEvents  = new HashMap<>();
-  private final Map<String, CompletableFuture<Object>> suspendFutures = new HashMap<>();
+  private static int nextSuspendEventId = 0;
+  static final Map<String, SuspendedEvent> suspendEvents  = new HashMap<>();
+  static final Map<String, CompletableFuture<Object>> suspendFutures = new HashMap<>();
 
-  SuspendedEvent getSuspendedEvent(final String id) {
-    return suspendEvents.get(id);
-  }
 
-  CompletableFuture<Object> getSuspendFuture(final String id) {
-    return suspendFutures.get(id);
-  }
-
-  private String getNextSuspendEventId() {
+  private static String getNextSuspendEventId() {
     int id = nextSuspendEventId;
     nextSuspendEventId += 1;
     return "se-" + id;
   }
 
-  public void reportSuspendedEvent(final SuspendedEvent e) {
+  public static void reportSuspendedEvent(final SuspendedEvent e) {
     Node     suspendedNode = e.getNode();
     RootNode suspendedRoot = suspendedNode.getRootNode();
     Source suspendedSource;
@@ -151,7 +148,8 @@ public class WebDebugger extends TruffleInstrument {
 
     JSONObjectBuilder builder = JsonSerializer.createSuspendedEventJson(e,
         suspendedNode, suspendedRoot, suspendedSource, id,
-        loadedSourcesTags, instrumenter, rootNodes);
+        WebDebugger.loadedSourcesTags, WebDebugger.instrumenter,
+        WebDebugger.rootNodes);
 
     CompletableFuture<Object> future = new CompletableFuture<>();
     suspendEvents.put(id, e);
@@ -169,31 +167,10 @@ public class WebDebugger extends TruffleInstrument {
     }
   }
 
-  public void suspendExecution(final Node haltedNode,
-      final MaterializedFrame haltedFrame) {
-    SuspendedEvent event = truffleDebugger.createSuspendedEvent(haltedNode, haltedFrame);
-    reportSuspendedEvent(event);
-  }
-
   static void log(final String str) {
     // Checkstyle: stop
     System.out.println(str);
     // Checkstyle: resume
-  }
-
-  protected Map<SFarReference, String> createActorMap(
-      final ObjectBuffer<ObjectBuffer<SFarReference>> actorsPerThread) {
-    HashMap<SFarReference, String> map = new HashMap<>();
-    int numActors = 0;
-
-    for (ObjectBuffer<SFarReference> perThread : actorsPerThread) {
-      for (SFarReference a : perThread) {
-        assert !map.containsKey(a);
-        map.put(a, "a-" + numActors);
-        numActors += 1;
-      }
-    }
-    return map;
   }
 
   @Override
@@ -202,8 +179,8 @@ public class WebDebugger extends TruffleInstrument {
 
     log("[ACTORS] send message history");
 
-    ObjectBuffer<ObjectBuffer<SFarReference>> actorsPerThread = ActorExecutionTrace.getAllCreateActors();
-    ObjectBuffer<ObjectBuffer<ObjectBuffer<EventualMessage>>> messagesPerThread = ActorExecutionTrace.getAllProcessedMessages();
+    ObjectBuffer<ObjectBuffer<SFarReference>> actorsPerThread = Actor.getAllCreateActors();
+    ObjectBuffer<ObjectBuffer<ObjectBuffer<EventualMessage>>> messagesPerThread = Actor.getAllProcessedMessages();
 
     Map<SFarReference, String> actorsToIds = createActorMap(actorsPerThread);
     Map<Actor, String> actorObjsToIds = new HashMap<>(actorsToIds.size());
@@ -232,34 +209,45 @@ public class WebDebugger extends TruffleInstrument {
     client.close();
   }
 
+  private static Map<SFarReference, String> createActorMap(
+      final ObjectBuffer<ObjectBuffer<SFarReference>> actorsPerThread) {
+    HashMap<SFarReference, String> map = new HashMap<>();
+    int numActors = 0;
 
+    for (ObjectBuffer<SFarReference> perThread : actorsPerThread) {
+      for (SFarReference a : perThread) {
+        assert !map.containsKey(a);
+        map.put(a, "a-" + numActors);
+        numActors += 1;
+      }
+    }
+    return map;
+  }
 
   @Override
   protected void onCreate(final Env env) {
     instrumenter = env.getInstrumenter();
-    env.registerService(this);
-  }
 
-  public void startServer(final Debugger dbg) {
-    truffleDebugger = dbg;
-    breakpoints = new Breakpoints(dbg);
-
+    // Checkstyle: stop
     try {
-      log("[DEBUGGER] Initialize HTTP and WebSocket Server for Debugger");
+      System.out.println("[DEBUGGER] Initialize HTTP and WebSocket Server for Debugger");
       int port = 8889;
       initializeWebSocket(8889);
-      log("[DEBUGGER] Started WebSocket Server");
+      System.out.println("[DEBUGGER] Started WebSocket Server");
 
       port = 8888;
       initializeHttpServer(port);
-      log("[DEBUGGER] Started HTTP Server");
-      log("[DEBUGGER]   URL: http://localhost:" + port + "/index.html");
+      System.out.println("[DEBUGGER] Started HTTP Server");
+      System.out.println("[DEBUGGER]   URL: http://localhost:" + port + "/index.html");
     } catch (IOException e) {
       e.printStackTrace();
-      log("Failed starting WebSocket and/or HTTP Server");
+      System.out.println("Failed starting WebSocket and/or HTTP Server");
     }
+
     // now we continue execution, but we wait for the future in the execution
     // event
+
+    // Checkstyle: resume
   }
 
   private void initializeHttpServer(final int port) throws IOException {
@@ -277,8 +265,7 @@ public class WebDebugger extends TruffleInstrument {
       clientConnected = new CompletableFuture<WebSocket>();
       InetSocketAddress addess = new InetSocketAddress(port);
       webSocketServer = new WebSocketHandler(
-          addess, (CompletableFuture<WebSocket>) clientConnected,
-          breakpoints, this);
+          addess, (CompletableFuture<WebSocket>) clientConnected);
       webSocketServer.start();
     }
   }
