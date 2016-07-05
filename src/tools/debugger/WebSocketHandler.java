@@ -70,6 +70,8 @@ class WebSocketHandler extends WebSocketServer {
 
   private void processLineBreakpoint(final JsonObject obj, final URI sourceUri,
       final boolean enabled) {
+    Object newBp = new Object();
+    Breakpoint bp = null;
     int lineNumber = obj.getInt("line", -1);
     connector.requestBreakpoint(enabled, sourceUri, lineNumber);
   }
