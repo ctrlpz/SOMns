@@ -34,8 +34,9 @@ import som.interpreter.actors.SFarReference;
 import som.interpreter.actors.SPromise;
 import som.interpreter.actors.SPromise.SResolver;
 import som.vm.ObjectSystem;
+import som.vmobjects.SInvokable;
 import som.vmobjects.SObjectWithClass.SObjectWithoutFields;
-import tools.actors.ActorExecutionTrace;
+import tools.ObjectBuffer;
 import tools.debugger.WebDebugger;
 import tools.dym.DynamicMetrics;
 import tools.dym.profiles.StructuralProbe;
@@ -47,20 +48,11 @@ public final class VM {
 
   @CompilationFinal private static PolyglotEngine engine;
   @CompilationFinal private static VM vm;
-  @CompilationFinal private static StructuralProbe structuralProbe;
-  @CompilationFinal private static Debugger    debugger;
-  @CompilationFinal private static WebDebugger webDebugger;
+  @CompilationFinal private static StructuralProbe structuralProbes;
+  @CompilationFinal private static Debugger debugger;
 
   public static Debugger getDebugger() {
     return debugger;
-  }
-
-  public static WebDebugger getWebDebugger() {
-    return webDebugger;
-  }
-
-  public static StructuralProbe getStructuralProbe() {
-    return structuralProbe;
   }
 
   private final Map<String, Object> exports = new HashMap<>();
@@ -134,7 +126,13 @@ public final class VM {
 
   public static void reportNewMixin(final MixinDefinition m) {
     if (VmSettings.DYNAMIC_METRICS) {
-      structuralProbe.recordNewClass(m);
+      structuralProbes.recordNewClass(m);
+    }
+  }
+
+  public static void reportNewMethod(final SInvokable m) {
+    if (VmSettings.DYNAMIC_METRICS) {
+      structuralProbes.recordNewMethod(m);
     }
   }
 
@@ -157,28 +155,20 @@ public final class VM {
   public static void reportSyntaxElement(final Class<? extends Tags> type,
       final SourceSection source) {
     Highlight.reportNonAstSyntax(type, source);
-    if (webDebugger != null) {
-      webDebugger.reportSyntaxElement(type, source);
-    }
+    WebDebugger.reportSyntaxElement(type, source);
   }
 
   public static void reportParsedRootNode(final RootNode rootNode) {
     Highlight.reportParsedRootNode(rootNode);
-    if (webDebugger != null) {
-      webDebugger.reportRootNodeAfterParsing(rootNode);
-    }
+    WebDebugger.reportRootNodeAfterParsing(rootNode);
   }
 
   public static void reportLoadedSource(final Source source) {
-    if (webDebugger != null) {
-      webDebugger.reportLoadedSource(source);
-    }
+    WebDebugger.reportLoadedSource(source);
   }
 
   public static void reportSuspendedEvent(final SuspendedEvent e) {
-    if (webDebugger != null) {
-      webDebugger.reportSuspendedEvent(e);
-    }
+    WebDebugger.reportSuspendedEvent(e);
   }
 
   public void setCompletionFuture(final CompletableFuture<Object> future) {
@@ -271,7 +261,14 @@ public final class VM {
     mainActor = Actor.createActor();
     vmMirror  = objectSystem.initialize();
 
-    ActorExecutionTrace.recordMainActor(mainActor, objectSystem);
+    if (VmSettings.ACTOR_TRACING) {
+      ObjectBuffer<ObjectBuffer<SFarReference>> actors = Actor.getAllCreateActors();
+      SFarReference mainActorRef = new SFarReference(mainActor, objectSystem.getPlatformClass());
+
+      ObjectBuffer<SFarReference> main = new ObjectBuffer<>(1);
+      main.append(mainActorRef);
+      actors.append(main);
+    }
   }
 
   public Object execute(final String selector) {
@@ -307,7 +304,7 @@ public final class VM {
       new EventConsumer<ExecutionEvent>(ExecutionEvent.class) {
     @Override
     protected void on(final ExecutionEvent event) {
-      webDebugger.reportExecutionEvent(event);
+      WebDebugger.reportExecutionEvent(event);
     }
   };
 
@@ -315,7 +312,7 @@ public final class VM {
       new EventConsumer<SuspendedEvent>(SuspendedEvent.class) {
     @Override
     protected void on(final SuspendedEvent e) {
-      webDebugger.reportSuspendedEvent(e);
+      WebDebugger.reportSuspendedEvent(e);
     }
   };
 
@@ -342,11 +339,8 @@ public final class VM {
 
       if (vmOptions.webDebuggerEnabled) {
         assert debugger != null;
-        Instrument webDebuggerInst = instruments.get(WebDebugger.ID);
-        webDebuggerInst.setEnabled(true);
-
-        webDebugger = webDebuggerInst.lookup(WebDebugger.class);
-        webDebugger.startServer(debugger);
+        Instrument webDebugger = instruments.get(WebDebugger.ID);
+        webDebugger.setEnabled(true);
       }
 
       if (vmOptions.coverageEnabled) {
@@ -362,8 +356,8 @@ public final class VM {
         assert VmSettings.DYNAMIC_METRICS;
         Instrument dynM = instruments.get(DynamicMetrics.ID);
         dynM.setEnabled(true);
-        structuralProbe = dynM.lookup(StructuralProbe.class);
-        assert structuralProbe != null : "Initialization of DynamicMetrics tool incomplete";
+        structuralProbes = dynM.lookup(StructuralProbe.class);
+        assert structuralProbes != null : "Initialization of DynamicMetrics tool incomplete";
       }
 
       engine.eval(SomLanguage.START);
