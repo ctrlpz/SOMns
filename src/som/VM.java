@@ -50,10 +50,15 @@ public final class VM {
   @CompilationFinal private static PolyglotEngine engine;
   @CompilationFinal private static VM vm;
   @CompilationFinal private static StructuralProbe structuralProbes;
-  @CompilationFinal private static Debugger debugger;
+  @CompilationFinal private static Debugger    debugger;
+  @CompilationFinal private static WebDebugger webDebugger;
 
   public static Debugger getDebugger() {
     return debugger;
+  }
+
+  public static WebDebugger getWebDebugger() {
+    return webDebugger;
   }
 
   private final Map<String, Object> exports = new HashMap<>();
@@ -156,20 +161,28 @@ public final class VM {
   public static void reportSyntaxElement(final Class<? extends Tags> type,
       final SourceSection source) {
     Highlight.reportNonAstSyntax(type, source);
-    WebDebugger.reportSyntaxElement(type, source);
+    if (webDebugger != null) {
+      webDebugger.reportSyntaxElement(type, source);
+    }
   }
 
   public static void reportParsedRootNode(final RootNode rootNode) {
     Highlight.reportParsedRootNode(rootNode);
-    WebDebugger.reportRootNodeAfterParsing(rootNode);
+    if (webDebugger != null) {
+      webDebugger.reportRootNodeAfterParsing(rootNode);
+    }
   }
 
   public static void reportLoadedSource(final Source source) {
-    WebDebugger.reportLoadedSource(source);
+    if (webDebugger != null) {
+      webDebugger.reportLoadedSource(source);
+    }
   }
 
   public static void reportSuspendedEvent(final SuspendedEvent e) {
-    WebDebugger.reportSuspendedEvent(e);
+    if (webDebugger != null) {
+      webDebugger.reportSuspendedEvent(e);
+    }
   }
 
   public void setCompletionFuture(final CompletableFuture<Object> future) {
@@ -305,7 +318,7 @@ public final class VM {
       new EventConsumer<ExecutionEvent>(ExecutionEvent.class) {
     @Override
     protected void on(final ExecutionEvent event) {
-      WebDebugger.reportExecutionEvent(event);
+      webDebugger.reportExecutionEvent(event);
     }
   };
 
@@ -313,7 +326,7 @@ public final class VM {
       new EventConsumer<SuspendedEvent>(SuspendedEvent.class) {
     @Override
     protected void on(final SuspendedEvent e) {
-      WebDebugger.reportSuspendedEvent(e);
+      webDebugger.reportSuspendedEvent(e);
     }
   };
 
@@ -340,8 +353,11 @@ public final class VM {
 
       if (vmOptions.webDebuggerEnabled) {
         assert debugger != null;
-        Instrument webDebugger = instruments.get(WebDebugger.ID);
-        webDebugger.setEnabled(true);
+        Instrument webDebuggerInst = instruments.get(WebDebugger.ID);
+        webDebuggerInst.setEnabled(true);
+
+        webDebugger = webDebuggerInst.lookup(WebDebugger.class);
+        webDebugger.startServer(debugger);
       }
 
       if (vmOptions.coverageEnabled) {
