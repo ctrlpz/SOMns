@@ -28,7 +28,6 @@ import som.interpreter.actors.Actor;
 import som.interpreter.actors.EventualMessage;
 import som.interpreter.actors.SFarReference;
 import tools.ObjectBuffer;
-import tools.actors.ActorExecutionTrace;
 import tools.highlight.Tags;
 
 
@@ -76,7 +75,7 @@ public class FrontendConnector {
     try {
       log("[DEBUGGER] Initialize HTTP and WebSocket Server for Debugger");
       int port = 8889;
-      receiver = initializeWebSocket(port, clientConnected);
+      receiver = initializeWebSocket(port, clientConnected, breakpoints);
       log("[DEBUGGER] Started WebSocket Server");
 
       port = 8888;
@@ -92,7 +91,7 @@ public class FrontendConnector {
   }
 
   private WebSocketHandler initializeWebSocket(final int port,
-      final Future<WebSocket> clientConnected) {
+      final Future<WebSocket> clientConnected, final Breakpoints breakpoints) {
     InetSocketAddress addess = new InetSocketAddress(port);
     WebSocketHandler server = new WebSocketHandler(
         addess, (CompletableFuture<WebSocket>) clientConnected, this);
@@ -194,8 +193,8 @@ public class FrontendConnector {
 
     log("[ACTORS] send message history");
 
-    ObjectBuffer<ObjectBuffer<SFarReference>> actorsPerThread = ActorExecutionTrace.getAllCreateActors();
-    ObjectBuffer<ObjectBuffer<ObjectBuffer<EventualMessage>>> messagesPerThread = ActorExecutionTrace.getAllProcessedMessages();
+    ObjectBuffer<ObjectBuffer<SFarReference>> actorsPerThread = Actor.getAllCreateActors();
+    ObjectBuffer<ObjectBuffer<ObjectBuffer<EventualMessage>>> messagesPerThread = Actor.getAllProcessedMessages();
 
     Map<SFarReference, String> actorsToIds = createActorMap(actorsPerThread);
     Map<Actor, String> actorObjsToIds = new HashMap<>(actorsToIds.size());
@@ -252,16 +251,5 @@ public class FrontendConnector {
     // Checkstyle: stop
     System.out.println(str);
     // Checkstyle: resume
-  }
-
-  public void shutdown() {
-    int delaySec = 5;
-    contentServer.stop(delaySec);
-
-    sender.close();
-    try {
-      int delayMsec = 1000;
-      receiver.stop(delayMsec);
-    } catch (InterruptedException e) { }
   }
 }
