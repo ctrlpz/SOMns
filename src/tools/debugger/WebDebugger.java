@@ -31,6 +31,7 @@ import som.interpreter.actors.Actor;
 import som.interpreter.actors.EventualMessage;
 import som.interpreter.actors.SFarReference;
 import tools.ObjectBuffer;
+import tools.actors.ActorExecutionTrace;
 import tools.highlight.Tags;
 
 
@@ -172,10 +173,10 @@ public class WebDebugger extends TruffleInstrument {
 
     log("[ACTORS] send message history");
 
-    ObjectBuffer<ObjectBuffer<SFarReference>> actorsPerThread = Actor.getAllCreateActors();
-    ObjectBuffer<ObjectBuffer<ObjectBuffer<EventualMessage>>> messagesPerThread = Actor.getAllProcessedMessages();
+    ObjectBuffer<ObjectBuffer<SFarReference>> actorsPerThread = ActorExecutionTrace.getAllCreateActors();
+    ObjectBuffer<ObjectBuffer<ObjectBuffer<EventualMessage>>> messagesPerThread = ActorExecutionTrace.getAllProcessedMessages();
 
-    Map<SFarReference, String> actorsToIds = createActorMap(actorsPerThread);
+    Map<SFarReference, String> actorsToIds = ActorExecutionTrace.createActorMap(actorsPerThread);
     Map<Actor, String> actorObjsToIds = new HashMap<>(actorsToIds.size());
     for (Entry<SFarReference, String> e : actorsToIds.entrySet()) {
       Actor a = e.getKey().getActor();
@@ -202,20 +203,7 @@ public class WebDebugger extends TruffleInstrument {
     client.close();
   }
 
-  private static Map<SFarReference, String> createActorMap(
-      final ObjectBuffer<ObjectBuffer<SFarReference>> actorsPerThread) {
-    HashMap<SFarReference, String> map = new HashMap<>();
-    int numActors = 0;
 
-    for (ObjectBuffer<SFarReference> perThread : actorsPerThread) {
-      for (SFarReference a : perThread) {
-        assert !map.containsKey(a);
-        map.put(a, "a-" + numActors);
-        numActors += 1;
-      }
-    }
-    return map;
-  }
 
   @Override
   protected void onCreate(final Env env) {
