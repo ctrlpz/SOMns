@@ -181,6 +181,21 @@ public class WebDebugger extends TruffleInstrument {
     // Checkstyle: resume
   }
 
+  protected Map<SFarReference, String> createActorMap(
+      final ObjectBuffer<ObjectBuffer<SFarReference>> actorsPerThread) {
+    HashMap<SFarReference, String> map = new HashMap<>();
+    int numActors = 0;
+
+    for (ObjectBuffer<SFarReference> perThread : actorsPerThread) {
+      for (SFarReference a : perThread) {
+        assert !map.containsKey(a);
+        map.put(a, "a-" + numActors);
+        numActors += 1;
+      }
+    }
+    return map;
+  }
+
   @Override
   protected void onDispose(final Env env) {
     ensureConnectionIsAvailable();
@@ -190,7 +205,7 @@ public class WebDebugger extends TruffleInstrument {
     ObjectBuffer<ObjectBuffer<SFarReference>> actorsPerThread = ActorExecutionTrace.getAllCreateActors();
     ObjectBuffer<ObjectBuffer<ObjectBuffer<EventualMessage>>> messagesPerThread = ActorExecutionTrace.getAllProcessedMessages();
 
-    Map<SFarReference, String> actorsToIds = ActorExecutionTrace.createActorMap(actorsPerThread);
+    Map<SFarReference, String> actorsToIds = createActorMap(actorsPerThread);
     Map<Actor, String> actorObjsToIds = new HashMap<>(actorsToIds.size());
     for (Entry<SFarReference, String> e : actorsToIds.entrySet()) {
       Actor a = e.getKey().getActor();
