@@ -387,10 +387,40 @@ View.prototype.displaySuspendEvent = function (data, getSource) {
     annotateArray(annotationArray, source.id, data.sections);
     sourceFile.html(arrayToString(annotationArray));
 
-    // enable clicking on EventualSendNodes
+   var sendOperator = sourceFile.find(".EventualMessageSend");
+   $(sendOperator).attr("data-toggle", "popover");
+   $(sendOperator).attr("data-trigger", "click hover");//focus= stay, click = appear and dissapear
+   $(sendOperator).attr("title", "Message Breakpoint");
+
+   $(sendOperator).attr("tab-index", "0");
+   $(sendOperator).attr("role", "button");
+   
+   $(sendOperator).attr("data-content", function(){
+      var menuContent = nodeFromTemplate("hover-menu");
+      return $(menuContent).html();
+   });
+  
+    $(sendOperator).attr("data-html", "true");
+    $(sendOperator).attr("data-placement", "auto top");
+    $(sendOperator).popover();
+  
+   var sectionId;
+   // enable clicking on EventualSendNodes
     sourceFile.find(".EventualMessageSend").click(function (e) {
-      ctrl.onToggleMessageSendBreakpoint(e)
+      //ctrl.onToggleMessageSendBreakpoint(e)
+      sectionId = e.currentTarget.id;
+      
       })
+
+  //capture click event from buttons inside popover
+   $(document).on('click',"#btnReceiver",function () {
+     ctrl.messageBreakpointReceiver(sectionId);     
+   });
+
+   $(document).on('click',"#btnSend",function () {
+      ctrl.messageBreakpointSender(sectionId);
+   });
+
   }
 
   // highlight current node

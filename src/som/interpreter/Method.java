@@ -106,4 +106,9 @@ public class Method extends Invokable {
   public final Node deepCopy() {
     return cloneWithNewLexicalContext(currentMethodScope.getOuterMethodScopeOrNull());
   }
+
+
+  public MethodScope getCurrentMethodScope() {
+    return currentMethodScope;
+  }
 }

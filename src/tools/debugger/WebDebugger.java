@@ -132,4 +132,8 @@ public class WebDebugger extends TruffleInstrument {
     breakpoints = new Breakpoints(dbg);
     connector = new FrontendConnector(breakpoints, instrumenter, this);
   }
+
+  public Map<Source, Set<RootNode>> getRootNodes() {
+    return rootNodes;
+  }
 }
