@@ -504,7 +504,7 @@ Classes.transferClass.getSOMClass().setClassGroup(Classes.metaclassClass.getInst
 
   private static void handlePromiseResult(final SPromise promise) {
     int emptyFJPool = 0;
-    while (emptyFJPool < 60) {
+    while (emptyFJPool < 60000) {
       if (promise.isCompleted() || VM.shouldExit()) {
         if (VM.isAvoidingExit()) {
           return;
