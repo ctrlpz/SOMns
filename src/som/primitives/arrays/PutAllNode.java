@@ -5,14 +5,14 @@ import com.oracle.truffle.api.dsl.GenerateNodeFactory;
 import com.oracle.truffle.api.dsl.ImportStatic;
 import com.oracle.truffle.api.dsl.NodeChild;
 import com.oracle.truffle.api.dsl.Specialization;
-import com.oracle.truffle.api.frame.VirtualFrame;
-import com.oracle.truffle.api.source.SourceSection;
 
+import bd.primitives.Primitive;
 import som.interpreter.nodes.dispatch.BlockDispatchNode;
 import som.interpreter.nodes.dispatch.BlockDispatchNodeGen;
 import som.interpreter.nodes.nary.BinaryComplexOperation;
+import som.interpreter.nodes.nary.UnaryExpressionNode;
 import som.interpreter.nodes.specialized.SomLoop;
-import som.primitives.SizeAndLengthPrim;
+import som.primitives.SizeAndLengthPrimFactory;
 import som.vm.constants.Nil;
 import som.vmobjects.SArray.SMutableArray;
 import som.vmobjects.SBlock;
@@ -21,24 +21,18 @@ import som.vmobjects.SObjectWithClass;
 
 @GenerateNodeFactory
 @ImportStatic(Nil.class)
-@NodeChild(value = "length", type = SizeAndLengthPrim.class, executeWith = "receiver")
+@Primitive(selector = "putAll:", disabled = true,
+    extraChild = SizeAndLengthPrimFactory.class, receiverType = SMutableArray.class)
+@NodeChild(value = "length", type = UnaryExpressionNode.class, executeWith = "receiver")
 public abstract class PutAllNode extends BinaryComplexOperation {
-  @Child protected BlockDispatchNode block;
-
-  public PutAllNode(final boolean eagWrap, final SourceSection source) {
-    super(eagWrap, source); // TODO: tag properly, it is a loop, and array access
-    block = BlockDispatchNodeGen.create();
-  }
-
-  public PutAllNode(final SourceSection source) {
-    this(false, source);
-  }
+  @Child protected BlockDispatchNode block = BlockDispatchNodeGen.create();
+  // TODO: tag properly, it is a loop, and array access
 
   protected static final boolean valueOfNoOtherSpecialization(final Object value) {
-    return !(value instanceof Long)    &&
-           !(value instanceof Double)  &&
-           !(value instanceof Boolean) &&
-           !(value instanceof SBlock);
+    return !(value instanceof Long) &&
+        !(value instanceof Double) &&
+        !(value instanceof Boolean) &&
+        !(value instanceof SBlock);
   }
 
   @Specialization(guards = {"rcvr.isEmptyType()", "valueIsNil(nil)"})
@@ -48,17 +42,16 @@ public abstract class PutAllNode extends BinaryComplexOperation {
     return rcvr;
   }
 
-  @Specialization(guards = {"valueIsNil(nil)"}, contains = {"doPutNilInEmptyArray"})
-  public SMutableArray doPutNilInOtherArray(final SMutableArray rcvr, final SObjectWithClass nil,
+  @Specialization(guards = {"valueIsNil(nil)"}, replaces = {"doPutNilInEmptyArray"})
+  public SMutableArray doPutNilInOtherArray(final SMutableArray rcvr,
+      final SObjectWithClass nil,
       final long length) {
     rcvr.transitionToEmpty(length);
     return rcvr;
   }
 
-
-
   @Specialization
-  public SMutableArray doPutEvalBlock(final VirtualFrame frame, final SMutableArray rcvr,
+  public SMutableArray doPutEvalBlock(final SMutableArray rcvr,
       final SBlock block, final long length) {
     if (length <= 0) {
       return rcvr;
@@ -66,7 +59,7 @@ public abstract class PutAllNode extends BinaryComplexOperation {
 
     try {
       Object newStorage = ArraySetAllStrategy.evaluateFirstDetermineStorageAndEvaluateRest(
-          frame, block, length, this.block);
+          block, length, this.block);
       rcvr.transitionTo(newStorage);
     } finally {
       if (CompilerDirectives.inInterpreter()) {

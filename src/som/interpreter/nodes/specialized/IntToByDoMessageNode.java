@@ -2,91 +2,70 @@ package som.interpreter.nodes.specialized;
 
 import com.oracle.truffle.api.CompilerDirectives;
 import com.oracle.truffle.api.Truffle;
+import com.oracle.truffle.api.dsl.GenerateNodeFactory;
 import com.oracle.truffle.api.dsl.Specialization;
-import com.oracle.truffle.api.frame.VirtualFrame;
+import com.oracle.truffle.api.instrumentation.Tag;
 import com.oracle.truffle.api.nodes.DirectCallNode;
+import com.oracle.truffle.api.nodes.Node;
 
+import bd.primitives.Primitive;
 import som.interpreter.nodes.ExpressionNode;
-import som.interpreter.nodes.PreevaluatedExpression;
 import som.interpreter.nodes.nary.QuaternaryExpressionNode;
+import som.interpreter.objectstorage.ObjectTransitionSafepoint;
 import som.vmobjects.SBlock;
 import som.vmobjects.SInvokable;
 import tools.dym.Tags.LoopNode;
 
 
-public abstract class IntToByDoMessageNode extends QuaternaryExpressionNode
-    implements PreevaluatedExpression {
+@GenerateNodeFactory
+@Primitive(selector = "to:by:do:", disabled = true, noWrapper = true, requiresArguments = true)
+public abstract class IntToByDoMessageNode extends QuaternaryExpressionNode {
+  protected final SInvokable      blockMethod;
+  @Child protected DirectCallNode valueSend;
 
-  private final SInvokable blockMethod;
-  @Child private DirectCallNode valueSend;
-
-  public IntToByDoMessageNode(final ExpressionNode orignialNode,
-      final SBlock block) {
-    super(orignialNode.getSourceSection());
-    blockMethod = block.getMethod();
-    valueSend = Truffle.getRuntime().createDirectCallNode(
-                    blockMethod.getCallTarget());
-  }
-
-  public IntToByDoMessageNode(final IntToByDoMessageNode node) {
-    super(node.getSourceSection());
-    this.blockMethod = node.blockMethod;
-    this.valueSend   = node.valueSend;
+  public IntToByDoMessageNode(final Object[] args) {
+    blockMethod = ((SBlock) args[3]).getMethod();
+    valueSend = Truffle.getRuntime().createDirectCallNode(blockMethod.getCallTarget());
   }
 
   @Override
-  protected boolean isTaggedWith(final Class<?> tag) {
+  protected boolean hasTagIgnoringEagerness(final Class<? extends Tag> tag) {
     if (tag == LoopNode.class) {
       return true;
     } else {
-      return super.isTaggedWith(tag);
+      return super.hasTagIgnoringEagerness(tag);
     }
   }
 
-  @Override
-  public final Object doPreEvaluated(final VirtualFrame frame,
-      final Object[] arguments) {
-    return executeEvaluated(frame, arguments[0], arguments[1],  arguments[2],
-        arguments[3]);
+  @Specialization(guards = "block.getMethod() == blockMethod")
+  public final long doIntToByDo(final long receiver,
+      final long limit, final long step, final SBlock block) {
+    return doLoop(valueSend, this, receiver, limit, step, block);
   }
 
-  protected final boolean isSameBlockLong(final SBlock block) {
-    return block.getMethod() == blockMethod;
+  @Specialization(guards = "block.getMethod() == blockMethod")
+  public final long doIntToByDo(final long receiver,
+      final double limit, final long step, final SBlock block) {
+    return doLoop(valueSend, this, receiver, (long) limit, step, block);
   }
 
-  protected final boolean isSameBlockDouble(final SBlock block) {
-    return block.getMethod() == blockMethod;
-  }
-
-  @Specialization(guards = "isSameBlockLong(block)")
-  public final long doIntToByDo(final VirtualFrame frame, final long receiver, final long limit, final long step, final SBlock block) {
+  public static long doLoop(final DirectCallNode value,
+      final Node loopNode, final long receiver, final long limit, final long step,
+      final SBlock block) {
     try {
       if (receiver <= limit) {
-        valueSend.call(frame, new Object[] {block, receiver});
+        value.call(new Object[] {block, receiver});
       }
-      for (long i = receiver + 1; i <= limit; i += step) {
-        valueSend.call(frame, new Object[] {block, i});
+      for (long i = receiver + step; i <= limit; i += step) {
+        value.call(new Object[] {block, i});
+        ObjectTransitionSafepoint.INSTANCE.checkAndPerformSafepoint();
       }
     } finally {
       if (CompilerDirectives.inInterpreter()) {
-        SomLoop.reportLoopCount(limit - receiver, this);
-      }
-    }
-    return receiver;
-  }
-
-  @Specialization(guards = "isSameBlockDouble(block)")
-  public final long doIntToByDo(final VirtualFrame frame, final long receiver, final double limit, final long step, final SBlock block) {
-    try {
-      if (receiver <= limit) {
-        valueSend.call(frame, new Object[] {block, receiver});
-      }
-      for (long i = receiver + 1; i <= limit; i += step) {
-        valueSend.call(frame, new Object[] {block, i});
-      }
-    } finally {
-      if (CompilerDirectives.inInterpreter()) {
-        SomLoop.reportLoopCount((long) limit - receiver, this);
+        long loopCount = limit - receiver;
+        if (loopCount > 0) {
+          SomLoop.reportLoopCount(loopCount, loopNode);
+        }
       }
     }
     return receiver;

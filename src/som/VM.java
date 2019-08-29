@@ -1,73 +1,164 @@
 package som;
 
 import java.io.IOException;
+import java.util.HashMap;
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ForkJoinPool;
+import java.util.concurrent.TimeUnit;
+
+import org.graalvm.polyglot.Context;
+import org.graalvm.polyglot.Engine;
 
 import com.oracle.truffle.api.CompilerAsserts;
 import com.oracle.truffle.api.CompilerDirectives.CompilationFinal;
 import com.oracle.truffle.api.CompilerDirectives.TruffleBoundary;
-import com.oracle.truffle.api.debug.ExecutionEvent;
-import com.oracle.truffle.api.debug.SuspendedEvent;
-import com.oracle.truffle.api.instrumentation.InstrumentableFactory.WrapperNode;
-import com.oracle.truffle.api.instrumentation.InstrumentationHandler;
-import com.oracle.truffle.api.nodes.Node;
-import com.oracle.truffle.api.nodes.RootNode;
+import com.oracle.truffle.api.TruffleContext;
+import com.oracle.truffle.api.TruffleLanguage.Env;
+import com.oracle.truffle.api.debug.Debugger;
+import com.oracle.truffle.api.instrumentation.Tag;
+import com.oracle.truffle.api.nodes.GraphPrintVisitor;
 import com.oracle.truffle.api.source.Source;
 import com.oracle.truffle.api.source.SourceSection;
-import com.oracle.truffle.api.vm.EventConsumer;
-import com.oracle.truffle.api.vm.PolyglotEngine;
-import com.oracle.truffle.api.vm.PolyglotEngine.Builder;
-import com.oracle.truffle.api.vm.PolyglotEngine.Instrument;
-import com.oracle.truffle.tools.TruffleProfiler;
-import com.oracle.truffle.tools.debug.shell.client.SimpleREPLClient;
-import com.oracle.truffle.tools.debug.shell.server.REPLServer;
+import com.oracle.truffle.tools.profiler.CPUSampler;
 
+import bd.inlining.InlinableNodes;
+import bd.tools.structure.StructuralProbe;
 import coveralls.truffle.Coverage;
 import som.compiler.MixinDefinition;
+import som.compiler.MixinDefinition.SlotDefinition;
+import som.compiler.SourcecodeCompiler;
+import som.compiler.Variable;
+import som.interpreter.Method;
 import som.interpreter.SomLanguage;
 import som.interpreter.TruffleCompiler;
 import som.interpreter.actors.Actor;
+import som.interpreter.actors.Actor.ActorProcessingThreadFactory;
 import som.interpreter.actors.SFarReference;
 import som.interpreter.actors.SPromise;
 import som.interpreter.actors.SPromise.SResolver;
+import som.primitives.processes.ChannelPrimitives;
+import som.primitives.processes.ChannelPrimitives.ProcessThreadFactory;
+import som.primitives.threading.TaskThreads.ForkJoinThreadFactory;
+import som.primitives.threading.ThreadingModule;
+import som.vm.NotYetImplementedException;
 import som.vm.ObjectSystem;
+import som.vm.Primitives;
+import som.vm.VmOptions;
+import som.vm.VmSettings;
+import som.vmobjects.SClass;
 import som.vmobjects.SInvokable;
 import som.vmobjects.SObjectWithClass.SObjectWithoutFields;
-import tools.ObjectBuffer;
+import som.vmobjects.SSymbol;
+import tools.concurrency.KomposTrace;
+import tools.concurrency.TracingBackend;
 import tools.debugger.WebDebugger;
+import tools.debugger.session.Breakpoints;
 import tools.dym.DynamicMetrics;
-import tools.dym.profiles.StructuralProbe;
-import tools.highlight.Highlight;
-import tools.highlight.Tags;
+import tools.snapshot.SnapshotBackend;
+import tools.superinstructions.CandidateIdentifier;
 
 
 public final class VM {
 
-  @CompilationFinal private static PolyglotEngine engine;
-  @CompilationFinal private static VM vm;
-  @CompilationFinal private static StructuralProbe structuralProbes;
+  @CompilationFinal private StructuralProbe<SSymbol, MixinDefinition, SInvokable, SlotDefinition, Variable> structuralProbe;
 
-  public static PolyglotEngine getEngine() {
-    return engine;
+  @CompilationFinal private WebDebugger webDebugger;
+  @CompilationFinal private CPUSampler  truffleProfiler;
+
+  @CompilationFinal private TruffleContext context;
+
+  private final ForkJoinPool actorPool;
+  private final ForkJoinPool forkJoinPool;
+  private final ForkJoinPool processesPool;
+  private final ForkJoinPool threadPool;
+
+  @CompilationFinal private ObjectSystem objectSystem;
+
+  @CompilationFinal private SomLanguage language;
+
+  private int              lastExitCode = 0;
+  private volatile boolean shouldExit   = false;
+  private final VmOptions  options;
+
+  @CompilationFinal private SObjectWithoutFields vmMirror;
+  @CompilationFinal private Actor                mainActor;
+
+  private static final int MAX_THREADS = 0x7fff;
+
+  public VM(final VmOptions vmOptions) {
+    options = vmOptions;
+
+    actorPool = new ForkJoinPool(VmSettings.NUM_THREADS,
+        new ActorProcessingThreadFactory(this), new UncaughtExceptions(this), true);
+    processesPool = new ForkJoinPool(VmSettings.NUM_THREADS,
+        new ProcessThreadFactory(this), new UncaughtExceptions(this), true);
+    forkJoinPool = new ForkJoinPool(VmSettings.NUM_THREADS,
+        new ForkJoinThreadFactory(this), new UncaughtExceptions(this), false);
+    threadPool = new ForkJoinPool(MAX_THREADS,
+        new ForkJoinThreadFactory(this), new UncaughtExceptions(this), false);
   }
 
-  public static void setEngine(final PolyglotEngine e) {
-    engine = e;
+  /**
+   * Used by language server.
+   */
+  public VM(final VmOptions vmOptions, final boolean languageServer) {
+    assert languageServer : "Only to be used by language server";
+    this.options = vmOptions;
+
+    actorPool = null;
+    processesPool = null;
+    forkJoinPool = null;
+    threadPool = null;
   }
 
-  private final boolean avoidExitForTesting;
-  private final ObjectSystem objectSystem;
+  public WebDebugger getWebDebugger() {
+    return webDebugger;
+  }
 
-  private int lastExitCode = 0;
-  private volatile boolean shouldExit = false;
-  private volatile CompletableFuture<Object> vmMainCompletion = null;
-  private final VMOptions options;
+  public Breakpoints getBreakpoints() {
+    return webDebugger.getBreakpoints();
+  }
 
-  @CompilationFinal
-  private SObjectWithoutFields vmMirror;
-  @CompilationFinal
-  private Actor mainActor;
+  private final Map<String, Object> exports = new HashMap<>();
+
+  @TruffleBoundary
+  public boolean registerExport(final String name, final Object value) {
+    boolean wasExportedAlready = exports.containsKey(name);
+    exports.put(name, value);
+    return wasExportedAlready;
+  }
+
+  @TruffleBoundary
+  public Object getExport(final String name) {
+    return exports.get(name);
+  }
+
+  public SObjectWithoutFields getVmMirror() {
+    return vmMirror;
+  }
+
+  /**
+   * Used by language server.
+   */
+  public SomLanguage getLanguage() {
+    return language;
+  }
+
+  /**
+   * Used in {@link som.tests.BasicInterpreterTests} to identify which basic test method to
+   * invoke.
+   */
+  public String getTestSelector() {
+    return options.testSelector;
+  }
+
+  public Primitives getPrimitives() {
+    return objectSystem.getPrimitives();
+  }
+
+  public InlinableNodes<SSymbol> getInlinableNodes() {
+    return objectSystem.getInlinableNodes();
+  }
 
   public static void thisMethodNeedsToBeOptimized(final String msg) {
     if (VmSettings.FAIL_ON_MISSING_OPTIMIZATIONS) {
@@ -81,251 +172,238 @@ public final class VM {
     }
   }
 
-  public static void insertInstrumentationWrapper(final Node node) {
-    if (VmSettings.INSTRUMENTATION) {
-      assert node.getSourceSection() != null || (node instanceof WrapperNode) : "Node needs source section, or needs to be wrapper";
-      // TODO: a way to check whether the node needs actually wrapping?
-//      String[] tags = node.getSourceSection().getTags();
-//      if (tags != null && tags.length > 0) {
-        InstrumentationHandler.insertInstrumentationWrapper(node);
-//      }
-    }
+  @SuppressWarnings("deprecation")
+  private static void outputToIGV(final Method method) {
+    GraphPrintVisitor graphPrinter = new GraphPrintVisitor();
+
+    graphPrinter.beginGraph(method.toString()).visit(method);
+
+    graphPrinter.printToNetwork(true);
+    graphPrinter.close();
   }
 
-  public static StructuralProbe getStructuralProbe() {
-    return structuralProbes;
+  public ForkJoinPool getActorPool() {
+    return actorPool;
   }
 
-  public static void reportNewMixin(final MixinDefinition m) {
-    structuralProbes.recordNewClass(m);
+  public ForkJoinPool getProcessPool() {
+    return processesPool;
   }
 
-  public static void reportNewMethod(final SInvokable m) {
-    structuralProbes.recordNewMethod(m);
+  public ForkJoinPool getForkJoinPool() {
+    return forkJoinPool;
   }
 
-  public VM(final String[] args, final boolean avoidExitForTesting) throws IOException {
-    vm = this;
-
-    // TODO: fix hack, we need this early, and we want tool/polyglot engine support for the events...
-    structuralProbes = new StructuralProbe();
-
-    this.avoidExitForTesting = avoidExitForTesting;
-    options = new VMOptions(args);
-    objectSystem = new ObjectSystem(options.platformFile, options.kernelFile);
-
-    if (options.showUsage) {
-      VMOptions.printUsageAndExit();
-    }
+  public ForkJoinPool getThreadPool() {
+    return threadPool;
   }
 
-  public VM(final String[] args) throws IOException {
-    this(args, false);
+  /**
+   * @return true, if there are no scheduled submissions,
+   *         and no active threads in the pool, false otherwise.
+   *         This is only best effort, it does not look at the actor's
+   *         message queues.
+   */
+  public boolean isPoolIdle() {
+    // TODO: this is not working when a thread blocks, then it seems
+    // not to be considered running
+    return actorPool.isQuiescent() && processesPool.isQuiescent()
+        && forkJoinPool.isQuiescent() && threadPool.isQuiescent();
   }
 
-  public static void reportSyntaxElement(final Class<? extends Tags> type,
+  public void reportSyntaxElement(final Class<? extends Tag> type,
       final SourceSection source) {
-    Highlight.reportNonAstSyntax(type, source);
-    WebDebugger.reportSyntaxElement(type, source);
+    if (webDebugger != null) {
+      webDebugger.reportSyntaxElement(type, source);
+    }
   }
 
-  public static void reportParsedRootNode(final RootNode rootNode) {
-    Highlight.reportParsedRootNode(rootNode);
-    WebDebugger.reportRootNodeAfterParsing(rootNode);
+  public void reportParsedRootNode(final Method rootNode) {
+    if (webDebugger != null) {
+      webDebugger.reportRootNodeAfterParsing(rootNode);
+    }
+
+    if (VmSettings.IGV_DUMP_AFTER_PARSING) {
+      outputToIGV(rootNode);
+    }
   }
 
-  public static void reportLoadedSource(final Source source) {
-    WebDebugger.reportLoadedSource(source);
+  public void reportLoadedSource(final Source source) {
+    if (webDebugger != null) {
+      webDebugger.reportLoadedSource(source);
+    }
   }
 
-  public static void reportSuspendedEvent(final SuspendedEvent e) {
-    WebDebugger.reportSuspendedEvent(e);
-  }
-
-  public static void setVMMainCompletion(final CompletableFuture<Object> future) {
-    vm.vmMainCompletion = future;
-  }
-
-  public static boolean shouldExit() {
-    return vm.shouldExit;
+  public boolean shouldExit() {
+    return shouldExit;
   }
 
   public int lastExitCode() {
     return lastExitCode;
   }
 
-  public static String[] getArguments() {
-    return vm.options.args;
+  public Object[] getArguments() {
+    return options.args;
   }
 
-  public static void exit(final int errorCode) {
-    vm.exitVM(errorCode);
+  private void shutdownPools() {
+    ForkJoinPool[] pools =
+        new ForkJoinPool[] {actorPool, processesPool, forkJoinPool, threadPool};
+
+    for (ForkJoinPool pool : pools) {
+      pool.shutdownNow();
+      try {
+        pool.awaitTermination(10, TimeUnit.SECONDS);
+      } catch (InterruptedException e) {
+        throw new RuntimeException(e);
+      }
+    }
   }
 
-  private void exitVM(final int errorCode) {
-    TruffleCompiler.transferToInterpreter("exit");
-    // Exit from the Java system
-    if (!avoidExitForTesting) {
-      engine.dispose();
-      System.exit(errorCode);
-    } else {
-      lastExitCode = errorCode;
-      shouldExit = true;
+  /**
+   * Do some cleanup.
+   */
+  @TruffleBoundary
+  public void shutdown() {
+    if (truffleProfiler != null) {
+      throw new NotYetImplementedException();
+      // truffleProfiler.printHistograms(System.err);
     }
 
-    vmMainCompletion.complete(errorCode);
+    shutdownPools();
   }
 
-  public static void errorExit(final String message) {
+  public boolean isShutdown() {
+    return actorPool.isShutdown();
+  }
+
+  /**
+   * Request a shutdown and exit from the VM. This does not happen immediately.
+   * Instead, we instruct the main thread to do it, and merely kill the current
+   * thread.
+   *
+   * @param errorCode to be returned as exit code from the program
+   */
+  public void requestExit(final int errorCode) {
+    TruffleCompiler.transferToInterpreter("exit");
+    lastExitCode = errorCode;
+    shouldExit = true;
+    objectSystem.releaseMainThread(errorCode);
+
+    throw new ThreadDeath();
+  }
+
+  public void errorExit(final String message) {
     TruffleCompiler.transferToInterpreter("errorExit");
-    errorPrintln("Runtime Error: " + message);
-    exit(1);
+    Output.errorPrintln("Run-time Error: " + message);
+    requestExit(1);
   }
 
-  @TruffleBoundary
-  public static void errorPrint(final String msg) {
-    // Checkstyle: stop
-    System.err.print(msg);
-    // Checkstyle: resume
-  }
+  public void initalize(final SomLanguage lang) throws IOException {
+    Actor.initializeActorSystem(language);
 
-  @TruffleBoundary
-  public static void errorPrintln(final String msg) {
-    // Checkstyle: stop
-    System.err.println(msg);
-    // Checkstyle: resume
-  }
+    assert objectSystem == null : "VM is reinitialized accidently? objectSystem is already set.";
+    objectSystem = new ObjectSystem(new SourcecodeCompiler(lang), structuralProbe, this);
+    objectSystem.loadKernelAndPlatform(options.platformFile, options.kernelFile);
 
-  @TruffleBoundary
-  public static void errorPrintln() {
-    // Checkstyle: stop
-    System.err.println();
-    // Checkstyle: resume
-  }
-
-  @TruffleBoundary
-  public static void print(final String msg) {
-    // Checkstyle: stop
-    System.out.print(msg);
-    // Checkstyle: resume
-  }
-
-  @TruffleBoundary
-  public static void println(final String msg) {
-    // Checkstyle: stop
-    System.out.println(msg);
-    // Checkstyle: resume
-  }
-
-  public static boolean isAvoidingExit() {
-    return vm.avoidExitForTesting;
-  }
-
-  public void initalize() {
-    assert vmMirror  == null : "VM seems to be initialized already";
+    assert vmMirror == null : "VM seems to be initialized already";
     assert mainActor == null : "VM seems to be initialized already";
 
-    mainActor = Actor.createActor();
-    vmMirror  = objectSystem.initialize();
+    mainActor = Actor.createActor(this);
+    vmMirror = objectSystem.initialize();
 
-    if (VmSettings.ACTOR_TRACING) {
-      ObjectBuffer<ObjectBuffer<SFarReference>> actors = Actor.getAllCreateActors();
-      SFarReference mainActorRef = new SFarReference(mainActor, objectSystem.getPlatformClass());
-
-      ObjectBuffer<SFarReference> main = new ObjectBuffer<>(1);
-      main.append(mainActorRef);
-      actors.append(main);
+    if (VmSettings.ACTOR_TRACING || VmSettings.KOMPOS_TRACING) {
+      TracingBackend.startTracingBackend();
     }
+    if (VmSettings.KOMPOS_TRACING) {
+      KomposTrace.recordMainActor(mainActor, objectSystem);
+    }
+
+    language = lang;
   }
 
   public Object execute(final String selector) {
     return objectSystem.execute(selector);
   }
 
-  public void execute() {
-    objectSystem.executeApplication(vmMirror, mainActor);
+  public int execute() {
+    return objectSystem.executeApplication(vmMirror, mainActor);
   }
 
-  public static void main(final String[] args) {
-    Builder builder = PolyglotEngine.newBuilder();
-    builder.config(SomLanguage.MIME_TYPE, SomLanguage.CMD_ARGS, args);
-    VMOptions vmOptions = new VMOptions(args);
+  public Actor getMainActor() {
+    return mainActor;
+  }
 
-    if (vmOptions.debuggerEnabled) {
-      startDebugger(builder);
-    } else {
-      startExecution(builder, vmOptions);
+  public void enterContext() {
+    assert context != null : "setupInstruments(env) must have been called first";
+    context.enter();
+  }
+
+  public void leaveContext() {
+    assert context != null : "setupInstruments(env) must have been called first";
+    context.leave(null);
+  }
+
+  /**
+   * We only do this when we execute an application.
+   * We don't setup the instruments for BasicInterpreterTests.
+   */
+  public void setupInstruments(final Env env) {
+    context = env.getContext();
+
+    Engine engine = Context.getCurrent().getEngine();
+
+    if (options.profilingEnabled) {
+      truffleProfiler = CPUSampler.find(engine);
+      truffleProfiler.setCollecting(true);
+    }
+
+    if (VmSettings.TRUFFLE_DEBUGGER_ENABLED) {
+      assert options.webDebuggerEnabled : "If debugging is enabled, we currently expect the web debugger to be used.";
+      Debugger debugger = Debugger.find(env);
+
+      webDebugger = WebDebugger.find(env);
+      webDebugger.startServer(debugger, this);
+    }
+
+    if (options.coverageEnabled) {
+      Coverage cov = Coverage.find(env);
+      try {
+        cov.setOutputFile(options.coverageFile);
+      } catch (IOException e) {
+        Output.errorPrint("Failed to setup coverage tracking: " + e.getMessage());
+      }
+    }
+
+    if (options.dynamicMetricsEnabled) {
+      assert VmSettings.DYNAMIC_METRICS;
+      structuralProbe = DynamicMetrics.find(engine);
+      assert structuralProbe != null : "Initialization of DynamicMetrics tool incomplete";
+    }
+
+    if (options.siCandidateIdentifierEnabled) {
+      assert !options.dynamicMetricsEnabled : "Currently, DynamicMetrics and CandidateIdentifer are not compatible";
+      structuralProbe = CandidateIdentifier.find(env);
+      assert structuralProbe != null : "Initialization of CandidateIdentifer tool incomplete";
+    }
+
+    if (VmSettings.TRACK_SNAPSHOT_ENTITIES) {
+      assert !options.dynamicMetricsEnabled : "Currently, DynamicMetrics and Snapshots are not compatible";
+      assert !options.siCandidateIdentifierEnabled : "Currently, CandidateIdentifer and Snapshots are not compatible";
+      structuralProbe = SnapshotBackend.getProbe();
     }
   }
 
-  private static void startDebugger(final Builder builder) {
-    SimpleREPLClient client = new SimpleREPLClient();
-    REPLServer server = new REPLServer(client, builder);
-    engine = server.getEngine();
-    server.start();
-    client.start(server);
+  public SClass loadExtensionModule(final String filename) {
+    return objectSystem.loadExtensionModule(filename);
   }
 
-  private static final EventConsumer<ExecutionEvent> onExec =
-      new EventConsumer<ExecutionEvent>(ExecutionEvent.class) {
-    @Override
-    protected void on(final ExecutionEvent event) {
-      WebDebugger.reportExecutionEvent(event);
-    }
-  };
-
-  private static final EventConsumer<SuspendedEvent> onHalted =
-      new EventConsumer<SuspendedEvent>(SuspendedEvent.class) {
-    @Override
-    protected void on(final SuspendedEvent e) {
-      WebDebugger.reportSuspendedEvent(e);
-    }
-  };
-
-  private static void startExecution(final Builder builder,
-      final VMOptions vmOptions) {
-    if (vmOptions.webDebuggerEnabled) {
-      builder.onEvent(onExec).onEvent(onHalted);
-    }
-    engine = builder.build();
-
-    try {
-      Map<String, Instrument> instruments = engine.getInstruments();
-      Instrument profiler = instruments.get(TruffleProfiler.ID);
-      if (vmOptions.profilingEnabled && profiler == null) {
-        VM.errorPrintln("Truffle profiler not available. Might be a class path issue");
-      } else if (profiler != null) {
-        profiler.setEnabled(vmOptions.profilingEnabled);
-      }
-      instruments.get(Highlight.ID).setEnabled(vmOptions.highlightingEnabled);
-
-      if (vmOptions.webDebuggerEnabled) {
-        instruments.get(WebDebugger.ID).setEnabled(true);
-      }
-
-      if (vmOptions.coverageEnabled) {
-        Instrument coveralls = instruments.get(Coverage.ID);
-        coveralls.setEnabled(true);
-        Coverage cov = coveralls.lookup(Coverage.class);
-        cov.setRepoToken(vmOptions.coverallsRepoToken);
-        cov.setServiceName("travis-ci");
-        cov.includeTravisData(true);
-      }
-
-      if (vmOptions.dynamicMetricsEnabled) {
-        instruments.get(DynamicMetrics.ID).setEnabled(true);
-      }
-
-      engine.eval(SomLanguage.START);
-      engine.dispose();
-    } catch (IOException e) {
-      throw new RuntimeException("This should never happen", e);
-    }
-    System.exit(vm.lastExitCode);
+  public MixinDefinition loadModule(final String filename) throws IOException {
+    return objectSystem.loadModule(filename);
   }
 
-  public static MixinDefinition loadModule(final String filename) throws IOException {
-    return vm.objectSystem.loadModule(filename);
+  public MixinDefinition loadModule(final Source source) throws IOException {
+    return objectSystem.loadModule(source);
   }
 
   /** This is only meant to be used in unit tests. */
@@ -335,5 +413,17 @@ public final class VM {
     SPromise.setPairClass(null);
     SPromise.setSOMClass(null);
     SResolver.setSOMClass(null);
+
+    ThreadingModule.ThreadingModule = null;
+    ThreadingModule.ThreadClass = null;
+    ThreadingModule.ThreadClassId = null;
+    ThreadingModule.TaskClass = null;
+    ThreadingModule.TaskClassId = null;
+    ThreadingModule.MutexClass = null;
+    ThreadingModule.MutexClassId = null;
+    ThreadingModule.ConditionClass = null;
+    ThreadingModule.ConditionClassId = null;
+
+    ChannelPrimitives.resetClassReferences();
   }
 }

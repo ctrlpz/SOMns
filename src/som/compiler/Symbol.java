@@ -25,10 +25,10 @@
 package som.compiler;
 
 enum Symbol {
-  NONE, Integer, Double, Not, And, Or, Star, Div, Mod, Plus, Minus, Equal, More, Less,
-  Comma, At, Per, NewBlock, EndBlock, Colon, Period, Exit, Assign, NewTerm,
-  EndTerm, Pound, STString,
+  NONE, Numeral, Not, And, Or, Star, Div, Mod, Plus, Minus, Equal, More, Less,
+  Comma, At, Per, NewBlock, EndBlock, LCurly, RCurly, Colon, Semicolon, Period, Exit, NewTerm,
+  EndTerm, Pound, STString, Char,
   BeginComment, EndComment, SlotMutableAssign, EventualSend, MixinOperator,
-  Identifier, Keyword,
+  Identifier, Keyword, SetterKeyword,
   KeywordSequence, OperatorSequence
 }

@@ -4,12 +4,13 @@ import com.oracle.truffle.api.CallTarget;
 import com.oracle.truffle.api.CompilerDirectives;
 import com.oracle.truffle.api.Truffle;
 import com.oracle.truffle.api.frame.VirtualFrame;
+import com.oracle.truffle.api.instrumentation.Tag;
 import com.oracle.truffle.api.nodes.DirectCallNode;
-import com.oracle.truffle.api.source.SourceSection;
 
 import som.interpreter.nodes.ExpressionNode;
 import som.interpreter.nodes.nary.BinaryComplexOperation;
 import som.interpreter.nodes.specialized.SomLoop;
+import som.interpreter.objectstorage.ObjectTransitionSafepoint;
 import som.vm.constants.Nil;
 import som.vmobjects.SBlock;
 import tools.dym.Tags.LoopNode;
@@ -21,10 +22,7 @@ public abstract class AbstractWhileNode extends BinaryComplexOperation {
 
   protected final boolean predicateBool;
 
-  public AbstractWhileNode(final SBlock rcvr, final SBlock arg,
-      final boolean predicateBool, final SourceSection source) {
-    super(false, source);
-
+  public AbstractWhileNode(final SBlock rcvr, final SBlock arg, final boolean predicateBool) {
     CallTarget callTargetCondition = rcvr.getMethod().getCallTarget();
     conditionValueSend = Truffle.getRuntime().createDirectCallNode(
         callTargetCondition);
@@ -37,35 +35,38 @@ public abstract class AbstractWhileNode extends BinaryComplexOperation {
   }
 
   @Override
-  protected boolean isTaggedWithIgnoringEagerness(final Class<?> tag) {
+  protected boolean hasTagIgnoringEagerness(final Class<? extends Tag> tag) {
     if (tag == LoopNode.class) {
       return true;
     } else {
-      return super.isTaggedWithIgnoringEagerness(tag);
+      return super.hasTagIgnoringEagerness(tag);
     }
   }
 
   @Override
   public final Object executeEvaluated(final VirtualFrame frame,
       final Object rcvr, final Object arg) {
-    return doWhileConditionally(frame, (SBlock) rcvr, (SBlock) arg);
+    return doWhileConditionally((SBlock) rcvr, (SBlock) arg);
   }
 
-  protected final Object doWhileUnconditionally(final VirtualFrame frame,
-      final SBlock loopCondition, final SBlock loopBody) {
+  protected final Object doWhileUnconditionally(final SBlock loopCondition,
+      final SBlock loopBody) {
     long iterationCount = 0;
 
     boolean loopConditionResult = (boolean) conditionValueSend.call(
-        frame, new Object[] {loopCondition});
+        new Object[] {loopCondition});
 
     try {
       // TODO: this is a simplification, we don't cover the case receiver isn't a boolean
       while (loopConditionResult == predicateBool) {
-        bodyValueSend.call(frame, new Object[] {loopBody});
+        bodyValueSend.call(new Object[] {loopBody});
         loopConditionResult = (boolean) conditionValueSend.call(
-            frame, new Object[] {loopCondition});
+            new Object[] {loopCondition});
 
-        if (CompilerDirectives.inInterpreter()) { iterationCount++; }
+        if (CompilerDirectives.inInterpreter()) {
+          iterationCount++;
+        }
+        ObjectTransitionSafepoint.INSTANCE.checkAndPerformSafepoint();
       }
     } finally {
       if (CompilerDirectives.inInterpreter()) {
@@ -75,8 +76,8 @@ public abstract class AbstractWhileNode extends BinaryComplexOperation {
     return Nil.nilObject;
   }
 
-  protected abstract Object doWhileConditionally(final VirtualFrame frame,
-      final SBlock loopCondition, final SBlock loopBody);
+  protected abstract Object doWhileConditionally(SBlock loopCondition,
+      SBlock loopBody);
 
   @Override
   public boolean isResultUsed(final ExpressionNode child) {

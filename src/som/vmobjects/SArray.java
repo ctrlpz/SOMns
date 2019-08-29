@@ -2,11 +2,12 @@ package som.vmobjects;
 
 import java.util.Arrays;
 
+import com.oracle.truffle.api.CompilerAsserts;
+import com.oracle.truffle.api.CompilerDirectives;
+
 import som.vm.NotYetImplementedException;
 import som.vm.constants.Nil;
 
-import com.oracle.truffle.api.CompilerDirectives;
-import com.oracle.truffle.api.profiles.ValueProfile;
 
 /**
  * SArrays are implemented using a Strategy-like approach.
@@ -16,18 +17,19 @@ import com.oracle.truffle.api.profiles.ValueProfile;
 public abstract class SArray extends SAbstractObject {
   public static final int FIRST_IDX = 0;
 
-  protected Object storage;
+  protected Object       storage;
   protected final SClass clazz;
 
-  public SArray(final long length, final SClass clazz) {
+  protected SArray(final long length, final SClass clazz) {
     storage = (int) length;
     this.clazz = clazz;
   }
 
-  public SArray(final Object storage, final SClass clazz) {
+  protected SArray(final Object storage, final SClass clazz) {
     assert !(storage instanceof Long);
+    assert storage != null;
     this.storage = storage;
-    this.clazz   = clazz;
+    this.clazz = clazz;
   }
 
   @Override
@@ -35,34 +37,39 @@ public abstract class SArray extends SAbstractObject {
     return clazz;
   }
 
-  public int getEmptyStorage(final ValueProfile storageType) {
+  public Object getStoragePlain() {
+    CompilerAsserts.neverPartOfCompilation();
+    return storage;
+  }
+
+  public int getEmptyStorage() {
     assert isEmptyType();
-    return (int) storageType.profile(storage);
+    return (int) storage;
   }
 
-  public PartiallyEmptyArray getPartiallyEmptyStorage(final ValueProfile storageType) {
+  public PartiallyEmptyArray getPartiallyEmptyStorage() {
     assert isPartiallyEmptyType();
-    return (PartiallyEmptyArray) storageType.profile(storage);
+    return (PartiallyEmptyArray) storage;
   }
 
-  public Object[] getObjectStorage(final ValueProfile storageType) {
+  public Object[] getObjectStorage() {
     assert isObjectType();
-    return (Object[]) storageType.profile(storage);
+    return CompilerDirectives.castExact(storage, Object[].class);
   }
 
-  public long[] getLongStorage(final ValueProfile storageType) {
+  public long[] getLongStorage() {
     assert isLongType();
-    return (long[]) storageType.profile(storage);
+    return (long[]) storage;
   }
 
-  public double[] getDoubleStorage(final ValueProfile storageType) {
+  public double[] getDoubleStorage() {
     assert isDoubleType();
-    return (double[]) storageType.profile(storage);
+    return (double[]) storage;
   }
 
-  public boolean[] getBooleanStorage(final ValueProfile storageType) {
+  public boolean[] getBooleanStorage() {
     assert isBooleanType();
-    return (boolean[]) storageType.profile(storage);
+    return (boolean[]) storage;
   }
 
   public boolean isEmptyType() {
@@ -73,15 +80,25 @@ public abstract class SArray extends SAbstractObject {
     return storage instanceof PartiallyEmptyArray;
   }
 
-  public boolean isObjectType()  { return storage instanceof Object[]; }
-  public boolean isLongType()    { return storage instanceof long[];   }
-  public boolean isDoubleType()  { return storage instanceof double[]; }
-  public boolean isBooleanType() { return storage instanceof boolean[]; }
+  public boolean isObjectType() {
+    return storage.getClass() == Object[].class;
+  }
+
+  public boolean isLongType() {
+    return storage.getClass() == long[].class;
+  }
+
+  public boolean isDoubleType() {
+    return storage.getClass() == double[].class;
+  }
+
+  public boolean isBooleanType() {
+    return storage.getClass() == boolean[].class;
+  }
 
   public boolean isSomePrimitiveType() {
     return isLongType() || isDoubleType() || isBooleanType();
   }
-
 
   private static long[] createLong(final Object[] arr) {
     long[] storage = new long[arr.length];
@@ -107,13 +124,10 @@ public abstract class SArray extends SAbstractObject {
     return storage;
   }
 
-  public static final ValueProfile PartiallyEmptyStorageType = ValueProfile.createClassProfile();
-
-
   public static final class PartiallyEmptyArray {
     private final Object[] arr;
-    private int emptyElements;
-    private Type type;
+    private int            emptyElements;
+    private Type           type;
 
     public enum Type {
       EMPTY, PARTIAL_EMPTY, LONG, DOUBLE, BOOLEAN, OBJECT;
@@ -160,21 +174,28 @@ public abstract class SArray extends SAbstractObject {
       arr[(int) idx] = val;
     }
 
-    public void incEmptyElements() { emptyElements++; }
-    public void decEmptyElements() { emptyElements--; }
-    public boolean isFull() { return emptyElements == 0; }
+    public void incEmptyElements() {
+      emptyElements++;
+    }
+
+    public void decEmptyElements() {
+      emptyElements--;
+    }
+
+    public boolean isFull() {
+      return emptyElements == 0;
+    }
 
     public PartiallyEmptyArray copy() {
       return new PartiallyEmptyArray(this);
     }
   }
 
-  public static final ValueProfile ObjectStorageType = ValueProfile.createClassProfile();
-
   public static class SMutableArray extends SArray {
 
     /**
      * Creates and empty array, using the EMPTY strategy.
+     *
      * @param length
      */
     public SMutableArray(final long length, final SClass clazz) {
@@ -185,11 +206,61 @@ public abstract class SArray extends SAbstractObject {
       super(storage, clazz);
     }
 
+    public SMutableArray shallowCopy() {
+      Object storageClone;
+      if (isEmptyType()) {
+        storageClone = storage;
+      } else if (isPartiallyEmptyType()) {
+        storageClone = ((PartiallyEmptyArray) storage).copy();
+      } else if (isBooleanType()) {
+        storageClone = ((boolean[]) storage).clone();
+      } else if (isDoubleType()) {
+        storageClone = ((double[]) storage).clone();
+      } else if (isLongType()) {
+        storageClone = ((long[]) storage).clone();
+      } else {
+        assert isObjectType();
+        storageClone = ((Object[]) storage).clone();
+      }
+
+      return new SMutableArray(storageClone, clazz);
+    }
+
+    public boolean txEquals(final SMutableArray a) {
+      if (storage.getClass() != a.storage.getClass()) {
+        // TODO: strictly speaking this isn't correct,
+        // there could be long[].equals(Object[]) that is true
+        // but, we are prone to ABA problems, so, I don't think this matters either
+        return false;
+      }
+
+      if (isEmptyType()) {
+        return true;
+      } else if (isPartiallyEmptyType()) {
+        return Arrays.equals(((PartiallyEmptyArray) storage).arr,
+            ((PartiallyEmptyArray) a.storage).arr);
+      } else if (isBooleanType()) {
+        return Arrays.equals((boolean[]) storage, (boolean[]) a.storage);
+      } else if (isDoubleType()) {
+        return Arrays.equals((double[]) storage, (double[]) a.storage);
+      } else if (isLongType()) {
+        return Arrays.equals((long[]) storage, (long[]) a.storage);
+      } else {
+        assert isObjectType();
+        return Arrays.equals((Object[]) storage, (Object[]) a.storage);
+      }
+    }
+
+    public void txSet(final SMutableArray a) {
+      storage = a.storage;
+    }
+
     /**
      * For internal use only, specifically, for SClass.
      * There we now, it is either empty, or of OBJECT type.
+     *
      * @param value
-     * @return
+     * @return new mutable array extended by value
      */
     public SArray copyAndExtendWith(final Object value) {
       Object[] newArr;
@@ -198,7 +269,7 @@ public abstract class SArray extends SAbstractObject {
       } else {
         // if this is not true, this method is used in a wrong context
         assert isObjectType();
-        Object[] s = getObjectStorage(ObjectStorageType);
+        Object[] s = getObjectStorage();
         newArr = Arrays.copyOf(s, s.length + 1);
         newArr[s.length] = value;
       }
@@ -226,11 +297,13 @@ public abstract class SArray extends SAbstractObject {
       fromEmptyToParticalWithType(PartiallyEmptyArray.Type.LONG, idx, val);
     }
 
-    public final void transitionFromEmptyToPartiallyEmptyWith(final long idx, final double val) {
+    public final void transitionFromEmptyToPartiallyEmptyWith(final long idx,
+        final double val) {
       fromEmptyToParticalWithType(PartiallyEmptyArray.Type.DOUBLE, idx, val);
     }
 
-    public final void transitionFromEmptyToPartiallyEmptyWith(final long idx, final boolean val) {
+    public final void transitionFromEmptyToPartiallyEmptyWith(final long idx,
+        final boolean val) {
       fromEmptyToParticalWithType(PartiallyEmptyArray.Type.BOOLEAN, idx, val);
     }
 
@@ -241,8 +314,6 @@ public abstract class SArray extends SAbstractObject {
     public final void transitionTo(final Object newStorage) {
       this.storage = newStorage;
     }
-
-//    private static final ValueProfile emptyStorageType = ValueProfile.createClassProfile();
 
     public final void transitionToObjectWithAll(final long length, final Object val) {
       Object[] arr = new Object[(int) length];
@@ -275,7 +346,7 @@ public abstract class SArray extends SAbstractObject {
     }
 
     public final void ifFullOrObjectTransitionPartiallyEmpty() {
-      PartiallyEmptyArray arr = getPartiallyEmptyStorage(PartiallyEmptyStorageType);
+      PartiallyEmptyArray arr = getPartiallyEmptyStorage();
 
       if (arr.isFull()) {
         if (arr.getType() == PartiallyEmptyArray.Type.LONG) {
@@ -297,17 +368,32 @@ public abstract class SArray extends SAbstractObject {
 
   public static final class SImmutableArray extends SArray {
 
-    public SImmutableArray(final long length, final SClass clazz) { super(length, clazz); }
-    public SImmutableArray(final Object storage, final SClass clazz) { super(storage, clazz); }
+    public SImmutableArray(final long length, final SClass clazz) {
+      super(length, clazz);
+    }
+
+    public SImmutableArray(final Object storage, final SClass clazz) {
+      super(storage, clazz);
+    }
 
     @Override
-    public boolean isValue() { return true; }
+    public boolean isValue() {
+      return true;
+    }
   }
 
   public static final class STransferArray extends SMutableArray {
-    public STransferArray(final long length, final SClass clazz) { super(length, clazz); }
-    public STransferArray(final Object storage, final SClass clazz) { super(storage, clazz); }
-    public STransferArray(final STransferArray old, final SClass clazz) { super(cloneStorage(old), clazz); }
+    public STransferArray(final long length, final SClass clazz) {
+      super(length, clazz);
+    }
+
+    public STransferArray(final Object storage, final SClass clazz) {
+      super(storage, clazz);
+    }
+
+    public STransferArray(final STransferArray old, final SClass clazz) {
+      super(cloneStorage(old), clazz);
+    }
 
     private static Object cloneStorage(final STransferArray old) {
       if (old.isEmptyType()) {

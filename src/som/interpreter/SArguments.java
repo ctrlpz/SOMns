@@ -1,9 +1,13 @@
 package som.interpreter;
 
+import com.oracle.truffle.api.frame.Frame;
+
+import som.primitives.SizeAndLengthPrim;
+import som.primitives.arrays.AtPrim;
 import som.vm.constants.Classes;
+import som.vmobjects.SArray;
 import som.vmobjects.SArray.SImmutableArray;
 
-import com.oracle.truffle.api.frame.Frame;
 
 public final class SArguments {
 
@@ -27,14 +31,31 @@ public final class SArguments {
    * #doesNotUnderstand (#dnu)
    */
   public static SImmutableArray getArgumentsWithoutReceiver(final Object[] arguments) {
-    int rcvrIdx = 0; // the code and magic numbers below are based on the following assumption
-    assert RCVR_IDX == rcvrIdx;
-    assert arguments.length >= 1;  // <- that's the receiver
-    Object[] argsArr = new Object[arguments.length - 1];
-    if (argsArr.length == 0) {
+    if (arguments.length == 1) {
       return new SImmutableArray(0, Classes.valueArrayClass);
     }
-    System.arraycopy(arguments, 1, argsArr, 0, argsArr.length);
+
+    Object[] argsArr = getPlainArgumentWithoutReceiver(arguments);
     return new SImmutableArray(argsArr, Classes.valueArrayClass);
+  }
+
+  public static Object[] getPlainArgumentWithoutReceiver(final Object[] arguments) {
+    int rcvrIdx = 0; // the code and magic numbers below are based on the following assumption
+    assert RCVR_IDX == rcvrIdx;
+    assert arguments.length >= 1; // <- that's the receiver
+    Object[] argsArr = new Object[arguments.length - 1];
+
+    System.arraycopy(arguments, 1, argsArr, 0, argsArr.length);
+    return argsArr;
+  }
+
+  public static Object[] getPlainArgumentsWithReceiver(final Object receiver,
+      final SArray args, final SizeAndLengthPrim size, final AtPrim at) {
+    Object[] result = new Object[(int) (size.executeEvaluated(args) + 1)];
+    result[0] = receiver;
+    for (int i = 1; i < result.length; i++) {
+      result[i] = at.executeEvaluated(null, args, (long) i);
+    }
+    return result;
   }
 }

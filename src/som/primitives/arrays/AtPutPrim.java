@@ -4,36 +4,89 @@ import java.util.Arrays;
 
 import com.oracle.truffle.api.dsl.GenerateNodeFactory;
 import com.oracle.truffle.api.dsl.ImportStatic;
+import com.oracle.truffle.api.dsl.NodeFactory;
 import com.oracle.truffle.api.dsl.Specialization;
-import com.oracle.truffle.api.profiles.ValueProfile;
+import com.oracle.truffle.api.instrumentation.Tag;
+import com.oracle.truffle.api.nodes.RootNode;
 import com.oracle.truffle.api.source.SourceSection;
 
+import bd.primitives.Primitive;
+import bd.primitives.Specializer;
+import som.VM;
+import som.interpreter.Invokable;
+import som.interpreter.SArguments;
+import som.interpreter.nodes.ExceptionSignalingNode;
+import som.interpreter.nodes.ExpressionNode;
 import som.interpreter.nodes.nary.TernaryExpressionNode;
-import som.primitives.Primitive;
+import som.interpreter.transactions.TxArrayAccessFactory.TxTernaryArrayOpNodeGen;
+import som.primitives.arrays.AtPutPrim.TxAtPutPrim;
+import som.vm.Symbols;
+import som.vm.constants.KernelObj;
 import som.vm.constants.Nil;
+import som.vmobjects.SArray;
 import som.vmobjects.SArray.PartiallyEmptyArray;
 import som.vmobjects.SArray.SMutableArray;
+import som.vmobjects.SSymbol;
 import tools.dym.Tags.ArrayWrite;
 import tools.dym.Tags.BasicPrimitiveOperation;
 
 
 @GenerateNodeFactory
 @ImportStatic(Nil.class)
-@Primitive("array:at:put:")
+@Primitive(primitive = "array:at:put:", selector = "at:put:",
+    receiverType = SArray.class, inParser = false, specializer = TxAtPutPrim.class)
 public abstract class AtPutPrim extends TernaryExpressionNode {
-  private final ValueProfile storageType = ValueProfile.createClassProfile();
+  protected static final class TxAtPutPrim extends Specializer<VM, ExpressionNode, SSymbol> {
+    public TxAtPutPrim(final Primitive prim, final NodeFactory<ExpressionNode> fact) {
+      super(prim, fact);
+    }
 
-  protected AtPutPrim(final boolean eagWrap, final SourceSection source) { super(eagWrap, source); }
-  protected AtPutPrim(final SourceSection source) { super(false, source); }
+    @Override
+    public ExpressionNode create(final Object[] arguments,
+        final ExpressionNode[] argNodes, final SourceSection section,
+        final boolean eagerWrapper, final VM vm) {
+      ExpressionNode node = super.create(arguments, argNodes, section, eagerWrapper, vm);
+      // TODO: seems a bit expensive,
+      // might want to optimize for interpreter first iteration speed
+      // TODO: clone in UnitializedDispatchNode.AbstractUninitialized.forAtomic()
+      RootNode root = argNodes[0].getRootNode();
+      boolean forAtomic;
+      if (root instanceof Invokable) {
+        forAtomic = ((Invokable) root).isAtomic();
+      } else {
+        // TODO: need to think about integration with actors, but, that's a
+        // later research project
+        forAtomic = false;
+      }
+
+      if (forAtomic) {
+        return TxTernaryArrayOpNodeGen.create((TernaryExpressionNode) node, null, null, null)
+                                      .initialize(section, eagerWrapper);
+      } else {
+        return node;
+      }
+    }
+  }
+
+  @Child protected ExceptionSignalingNode indexOutOfBounds;
 
   @Override
-  protected boolean isTaggedWithIgnoringEagerness(final Class<?> tag) {
+  @SuppressWarnings("unchecked")
+  public AtPutPrim initialize(final SourceSection sourceSection) {
+    super.initialize(sourceSection);
+    indexOutOfBounds = insert(ExceptionSignalingNode.createNode(KernelObj.kernel,
+        Symbols.IndexOutOfBounds, Symbols.SIGNAL_WITH_IDX, sourceSection));
+    return this;
+  }
+
+  @Override
+  protected boolean hasTagIgnoringEagerness(final Class<? extends Tag> tag) {
     if (tag == BasicPrimitiveOperation.class) {
       return true;
     } else if (tag == ArrayWrite.class) {
       return true;
     } else {
-      return super.isTaggedWithIgnoringEagerness(tag);
+      return super.hasTagIgnoringEagerness(tag);
     }
   }
 
@@ -55,37 +108,68 @@ public abstract class AtPutPrim extends TernaryExpressionNode {
         !(value instanceof Boolean);
   }
 
+  private Object triggerException(final SArray arr, final long idx) {
+    int rcvrIdx = SArguments.RCVR_IDX;
+    assert rcvrIdx == 0;
+    return indexOutOfBounds.signal(arr, idx);
+  }
+
+  private static void setValue(final long idx, final Object value,
+      final PartiallyEmptyArray storage) {
+    if (storage.get(idx) == Nil.nilObject) {
+      storage.decEmptyElements();
+    }
+    storage.set(idx, value);
+  }
+
+  private Object transitionAndSet(final SMutableArray receiver,
+      final long index, final Object value, final Object[] newStorage) {
+    receiver.transitionTo(newStorage);
+    newStorage[(int) index - 1] = value;
+    return value;
+  }
+
+  private void setAndPossiblyTransition(final SMutableArray receiver,
+      final long index, final Object value, final PartiallyEmptyArray.Type expectedType) {
+    PartiallyEmptyArray storage = receiver.getPartiallyEmptyStorage();
+    setValue(index - 1, value, storage);
+    if (storage.getType() != expectedType) {
+      storage.setType(PartiallyEmptyArray.Type.OBJECT);
+    }
+    receiver.ifFullOrObjectTransitionPartiallyEmpty();
+  }
+
   @Specialization(guards = {"receiver.isEmptyType()"})
   public final long doEmptySArray(final SMutableArray receiver, final long index,
       final long value) {
-    long idx = index - 1;
-    assert idx >= 0;
-    assert idx < receiver.getEmptyStorage(storageType);
-
-    receiver.transitionFromEmptyToPartiallyEmptyWith(idx, value);
-    return value;
+    try {
+      receiver.transitionFromEmptyToPartiallyEmptyWith(index - 1, value);
+      return value;
+    } catch (IndexOutOfBoundsException e) {
+      return (long) triggerException(receiver, index);
+    }
   }
 
   @Specialization(guards = {"receiver.isEmptyType()"})
-  public final Object doEmptySArray(final SMutableArray receiver, final long index,
+  public final double doEmptySArray(final SMutableArray receiver, final long index,
       final double value) {
-    long idx = index - 1;
-    assert idx >= 0;
-    assert idx < receiver.getEmptyStorage(storageType);
-
-    receiver.transitionFromEmptyToPartiallyEmptyWith(idx, value);
-    return value;
+    try {
+      receiver.transitionFromEmptyToPartiallyEmptyWith(index - 1, value);
+      return value;
+    } catch (IndexOutOfBoundsException e) {
+      return (double) triggerException(receiver, index);
+    }
   }
 
   @Specialization(guards = {"receiver.isEmptyType()"})
-  public final Object doEmptySArray(final SMutableArray receiver, final long index,
+  public final boolean doEmptySArray(final SMutableArray receiver, final long index,
       final boolean value) {
-    long idx = index - 1;
-    assert idx >= 0;
-    assert idx < receiver.getEmptyStorage(storageType);
-
-    receiver.transitionFromEmptyToPartiallyEmptyWith(idx, value);
-    return value;
+    try {
+      receiver.transitionFromEmptyToPartiallyEmptyWith(index - 1, value);
+      return value;
+    } catch (IndexOutOfBoundsException e) {
+      return (boolean) triggerException(receiver, index);
+    }
   }
 
   @Specialization(guards = {"receiver.isEmptyType()", "valueIsNotNil(value)",
@@ -93,183 +177,178 @@ public abstract class AtPutPrim extends TernaryExpressionNode {
   public final Object doEmptySArray(final SMutableArray receiver, final long index,
       final Object value) {
     final int idx = (int) index - 1;
-    int size = receiver.getEmptyStorage(storageType);
-
-    assert idx >= 0;
-    assert idx < size;
+    int size = receiver.getEmptyStorage();
 
     // if the value is an object, we transition directly to an Object array
     Object[] newStorage = new Object[size];
     Arrays.fill(newStorage, Nil.nilObject);
-    newStorage[idx] = value;
-
-    receiver.transitionTo(newStorage);
-    return value;
+    try {
+      newStorage[idx] = value;
+      receiver.transitionTo(newStorage);
+      return value;
+    } catch (IndexOutOfBoundsException e) {
+      return triggerException(receiver, index);
+    }
   }
 
   @Specialization(guards = {"receiver.isEmptyType()", "valueIsNil(value)"})
   public final Object doEmptySArrayWithNil(final SMutableArray receiver, final long index,
       final Object value) {
     long idx = index - 1;
-    assert idx >= 0;
-    assert idx < receiver.getEmptyStorage(storageType);
-    return value;
-  }
-
-  private void setValue(final long idx, final Object value,
-      final PartiallyEmptyArray storage) {
-    assert idx >= 0;
-    assert idx < storage.getLength();
-
-    if (storage.get(idx) == Nil.nilObject) {
-      storage.decEmptyElements();
+    if (idx < 0 || idx >= receiver.getEmptyStorage()) {
+      return triggerException(receiver, index);
     }
-    storage.set(idx, value);
+    return Nil.nilObject;
   }
 
   @Specialization(guards = "receiver.isPartiallyEmptyType()")
-  public final long doPartiallyEmptySArray(final SMutableArray receiver,
-      final long index, final long value) {
-    long idx = index - 1;
-    PartiallyEmptyArray storage = receiver.getPartiallyEmptyStorage(storageType);
-    setValue(idx, value, storage);
-    if (storage.getType() != PartiallyEmptyArray.Type.LONG) {
-      storage.setType(PartiallyEmptyArray.Type.OBJECT);
+  public final long doPartiallyEmptySArray(final SMutableArray receiver, final long index,
+      final long value) {
+    try {
+      setAndPossiblyTransition(receiver, index, value, PartiallyEmptyArray.Type.LONG);
+      return value;
+    } catch (IndexOutOfBoundsException e) {
+      return (long) triggerException(receiver, index);
     }
-
-    receiver.ifFullOrObjectTransitionPartiallyEmpty();
-    return value;
   }
 
   @Specialization(guards = "receiver.isPartiallyEmptyType()")
-  public final double doPartiallyEmptySArray(final SMutableArray receiver,
-      final long index, final double value) {
-    long idx = index - 1;
-    PartiallyEmptyArray storage = receiver.getPartiallyEmptyStorage(storageType);
-    setValue(idx, value, storage);
-    if (storage.getType() != PartiallyEmptyArray.Type.DOUBLE) {
-      storage.setType(PartiallyEmptyArray.Type.OBJECT);
+  public final double doPartiallyEmptySArray(final SMutableArray receiver, final long index,
+      final double value) {
+    try {
+      setAndPossiblyTransition(receiver, index, value, PartiallyEmptyArray.Type.DOUBLE);
+      return value;
+    } catch (IndexOutOfBoundsException e) {
+      return (double) triggerException(receiver, index);
     }
-    receiver.ifFullOrObjectTransitionPartiallyEmpty();
-    return value;
   }
 
   @Specialization(guards = "receiver.isPartiallyEmptyType()")
-  public final boolean doPartiallyEmptySArray(final SMutableArray receiver,
-      final long index, final boolean value) {
-    long idx = index - 1;
-    PartiallyEmptyArray storage = receiver.getPartiallyEmptyStorage(storageType);
-    setValue(idx, value, storage);
-    if (storage.getType() != PartiallyEmptyArray.Type.BOOLEAN) {
-      storage.setType(PartiallyEmptyArray.Type.OBJECT);
+  public final boolean doPartiallyEmptySArray(final SMutableArray receiver, final long index,
+      final boolean value) {
+    try {
+      setAndPossiblyTransition(receiver, index, value, PartiallyEmptyArray.Type.BOOLEAN);
+      return value;
+    } catch (IndexOutOfBoundsException e) {
+      return (boolean) triggerException(receiver, index);
     }
-    receiver.ifFullOrObjectTransitionPartiallyEmpty();
-    return value;
   }
 
   @Specialization(guards = {"receiver.isPartiallyEmptyType()", "valueIsNil(value)"})
   public final Object doPartiallyEmptySArrayWithNil(final SMutableArray receiver,
       final long index, final Object value) {
     long idx = index - 1;
-    PartiallyEmptyArray storage = receiver.getPartiallyEmptyStorage(storageType);
-    assert idx >= 0;
-    assert idx < storage.getLength();
+    PartiallyEmptyArray storage = receiver.getPartiallyEmptyStorage();
 
-    if (storage.get(idx) != Nil.nilObject) {
-      storage.incEmptyElements();
-      setValue(idx, Nil.nilObject, storage);
+    try {
+      if (storage.get(idx) != Nil.nilObject) {
+        storage.incEmptyElements();
+        storage.set(idx, Nil.nilObject);
+      }
+      return value;
+    } catch (IndexOutOfBoundsException e) {
+      return triggerException(receiver, index);
     }
-    return value;
   }
 
   @Specialization(guards = {"receiver.isPartiallyEmptyType()", "valueIsNotNil(value)"})
-  public final Object doPartiallyEmptySArray(final SMutableArray receiver,
-      final long index, final Object value) {
-    long idx = index - 1;
-    PartiallyEmptyArray storage = receiver.getPartiallyEmptyStorage(storageType);
-    setValue(idx, value, storage);
-    storage.setType(PartiallyEmptyArray.Type.OBJECT);
-    receiver.ifFullOrObjectTransitionPartiallyEmpty();
-    return value;
+  public final Object doPartiallyEmptySArray(final SMutableArray receiver, final long index,
+      final Object value) {
+    try {
+      setAndPossiblyTransition(receiver, index, value, PartiallyEmptyArray.Type.OBJECT);
+      return value;
+    } catch (IndexOutOfBoundsException e) {
+      return triggerException(receiver, index);
+    }
   }
 
   @Specialization(guards = "receiver.isObjectType()")
   public final Object doObjectSArray(final SMutableArray receiver, final long index,
       final Object value) {
-    long idx = index - 1;
-    receiver.getObjectStorage(storageType)[(int) idx] = value;
-    return value;
+    try {
+      receiver.getObjectStorage()[(int) index - 1] = value;
+      return value;
+    } catch (IndexOutOfBoundsException e) {
+      return triggerException(receiver, index);
+    }
   }
 
   @Specialization(guards = "receiver.isLongType()")
-  public final Object doObjectSArray(final SMutableArray receiver, final long index,
+  public final long doObjectSArray(final SMutableArray receiver, final long index,
       final long value) {
-    long idx = index - 1;
-    receiver.getLongStorage(storageType)[(int) idx] = value;
-    return value;
+    try {
+      receiver.getLongStorage()[(int) index - 1] = value;
+      return value;
+    } catch (IndexOutOfBoundsException e) {
+      return (long) triggerException(receiver, index);
+    }
   }
 
   @Specialization(guards = {"receiver.isLongType()", "valueIsNotLong(value)"})
   public final Object doLongSArray(final SMutableArray receiver, final long index,
       final Object value) {
-    long idx = index - 1;
-
-    long[] storage = receiver.getLongStorage(storageType);
+    long[] storage = receiver.getLongStorage();
     Object[] newStorage = new Object[storage.length];
     for (int i = 0; i < storage.length; i++) {
       newStorage[i] = storage[i];
     }
 
-    receiver.transitionTo(newStorage);
-    newStorage[(int) idx] = value;
-    return value;
+    try {
+      return transitionAndSet(receiver, index, value, newStorage);
+    } catch (IndexOutOfBoundsException e) {
+      return triggerException(receiver, index);
+    }
   }
 
   @Specialization(guards = "receiver.isDoubleType()")
-  public final Object doDoubleSArray(final SMutableArray receiver, final long index,
+  public final double doDoubleSArray(final SMutableArray receiver, final long index,
       final double value) {
-    long idx = index - 1;
-    receiver.getDoubleStorage(storageType)[(int) idx] = value;
-    return value;
+    try {
+      receiver.getDoubleStorage()[(int) index - 1] = value;
+      return value;
+    } catch (IndexOutOfBoundsException e) {
+      return (double) triggerException(receiver, index);
+    }
   }
 
   @Specialization(guards = {"receiver.isDoubleType()", "valueIsNotDouble(value)"})
   public final Object doDoubleSArray(final SMutableArray receiver, final long index,
       final Object value) {
-    long idx = index - 1;
-
-    double[] storage = receiver.getDoubleStorage(storageType);
+    double[] storage = receiver.getDoubleStorage();
     Object[] newStorage = new Object[storage.length];
     for (int i = 0; i < storage.length; i++) {
       newStorage[i] = storage[i];
     }
-
-    receiver.transitionTo(newStorage);
-    newStorage[(int) idx] = value;
-    return value;
+    try {
+      return transitionAndSet(receiver, index, value, newStorage);
+    } catch (IndexOutOfBoundsException e) {
+      return triggerException(receiver, index);
+    }
   }
 
   @Specialization(guards = "receiver.isBooleanType()")
-  public final Object doBooleanSArray(final SMutableArray receiver, final long index,
+  public final boolean doBooleanSArray(final SMutableArray receiver, final long index,
       final boolean value) {
-    long idx = index - 1;
-    receiver.getBooleanStorage(storageType)[(int) idx] = value;
-    return value;
+    try {
+      receiver.getBooleanStorage()[(int) index - 1] = value;
+      return value;
+    } catch (IndexOutOfBoundsException e) {
+      return (boolean) triggerException(receiver, index);
+    }
   }
 
   @Specialization(guards = {"receiver.isBooleanType()", "valueIsNotBoolean(value)"})
   public final Object doBooleanSArray(final SMutableArray receiver, final long index,
       final Object value) {
-    long idx = index - 1;
-
-    boolean[] storage = receiver.getBooleanStorage(storageType);
+    boolean[] storage = receiver.getBooleanStorage();
     Object[] newStorage = new Object[storage.length];
     for (int i = 0; i < storage.length; i++) {
       newStorage[i] = storage[i];
     }
-
-    receiver.transitionTo(newStorage);
-    newStorage[(int) idx] = value;
-    return value;
+    try {
+      return transitionAndSet(receiver, index, value, newStorage);
+    } catch (IndexOutOfBoundsException e) {
+      return triggerException(receiver, index);
+    }
   }
 }

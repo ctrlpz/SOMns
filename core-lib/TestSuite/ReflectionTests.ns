@@ -1,0 +1,68 @@
+(*
+Copyright (c) 2007-2013 see AUTHORS file
+Software Architecture Group, Hasso Plattner Institute, Potsdam, Germany
+http://www.hpi.uni-potsdam.de/swa/
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the 'Software'), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED 'AS IS', WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.*)
+class ReflectionTests usingPlatform: platform testFramework: minitest = (
+| private TestContext = minitest TestContext.
+  private system = platform system.
+  private platform = platform.
+  private Array     = platform kernel Array.
+  private ObjectMirror = platform mirrors ObjectMirror.
+|
+) (
+  public class FactoryMethodTest = TestContext ()(
+    public class ReflectionTarget = (| num ::= 0. |)(
+      public set: val = (num:: val)
+      public get = (^ num)
+    )
+
+    (* public testResondsTo = (
+      self assert: ((ObjectMirror reflecting: Object new) respondsTo: #isNil).
+      self assert: ((ObjectMirror reflecting: 23) respondsTo: #isNil).
+      self assert: ((ObjectMirror reflecting: 23) respondsTo: #+).
+    ) *)
+
+    (*public testMethods = (
+      | o |
+      o:: ReflectionTarget new.
+      (ObjectMirror reflecting: o) classMirror methods doIndexes: [ :i |
+        ('' + ((ObjectMirror reflecting: o) classMirror methods) at: i) println.
+      ]
+
+      self assert: #class equals: (Object methods at: 1) signature.
+      self assert: (Object hasMethod: #==).
+    )*)
+
+    public testPerform = (
+      | o mirrorO mirror23 |
+      mirror23:: ObjectMirror reflecting: 23.
+      self assert: (mirror23 perform: #between:and: withArguments: { 22. 24 }).
+
+      o:: ReflectionTarget new.
+      mirrorO:: ObjectMirror reflecting: o.
+      assert: (mirrorO perform: #get) equals: 0.
+      mirrorO perform: #set: withArguments: { 5 }.
+
+      assert: (mirrorO perform: #get) equals: 5.
+      assert: 28 equals: 5 + (mirror23 perform: #value)
+    )
+  ) : ( TEST_CONTEXT = () )
+)

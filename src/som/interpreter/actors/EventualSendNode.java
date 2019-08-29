@@ -1,21 +1,28 @@
 package som.interpreter.actors;
 
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ForkJoinPool;
 
 import com.oracle.truffle.api.CompilerAsserts;
-import com.oracle.truffle.api.CompilerDirectives.CompilationFinal;
 import com.oracle.truffle.api.RootCallTarget;
 import com.oracle.truffle.api.Truffle;
 import com.oracle.truffle.api.dsl.Cached;
-import com.oracle.truffle.api.dsl.NodeChild;
 import com.oracle.truffle.api.dsl.Specialization;
-import com.oracle.truffle.api.instrumentation.Instrumentable;
+import com.oracle.truffle.api.frame.VirtualFrame;
+import com.oracle.truffle.api.instrumentation.GenerateWrapper;
+import com.oracle.truffle.api.instrumentation.InstrumentableNode;
+import com.oracle.truffle.api.instrumentation.ProbeNode;
+import com.oracle.truffle.api.instrumentation.StandardTags.StatementTag;
+import com.oracle.truffle.api.instrumentation.Tag;
 import com.oracle.truffle.api.nodes.ExplodeLoop;
 import com.oracle.truffle.api.nodes.Node;
 import com.oracle.truffle.api.source.SourceSection;
 
+import som.VM;
+import som.interpreter.SomLanguage;
 import som.interpreter.actors.EventualMessage.DirectMessage;
 import som.interpreter.actors.EventualMessage.PromiseSendMessage;
+import som.interpreter.actors.EventualSendNodeFactory.SendNodeGen;
 import som.interpreter.actors.ReceivedMessage.ReceivedMessageForVMMain;
 import som.interpreter.actors.RegisterOnPromiseNode.RegisterWhenResolved;
 import som.interpreter.actors.SPromise.SResolver;
@@ -23,52 +30,64 @@ import som.interpreter.nodes.ExpressionNode;
 import som.interpreter.nodes.InternalObjectArrayNode;
 import som.interpreter.nodes.MessageSendNode;
 import som.interpreter.nodes.MessageSendNode.AbstractMessageSendNode;
+import som.interpreter.nodes.SOMNode;
 import som.interpreter.nodes.nary.ExprWithTagsNode;
+import som.vm.VmSettings;
 import som.vm.constants.Nil;
 import som.vmobjects.SSymbol;
+import tools.concurrency.KomposTrace;
+import tools.concurrency.Tags.EventualMessageSend;
+import tools.concurrency.Tags.ExpressionBreakpoint;
+import tools.debugger.entities.BreakpointType;
+import tools.debugger.entities.SendOp;
+import tools.debugger.nodes.AbstractBreakpointNode;
+import tools.debugger.session.Breakpoints;
 
 
-@NodeChild(value = "arguments", type = InternalObjectArrayNode.class)
-@Instrumentable(factory = EventualSendNodeWrapper.class)
-public abstract class EventualSendNode extends ExprWithTagsNode {
+@GenerateWrapper
+public class EventualSendNode extends ExprWithTagsNode {
+  @Child protected InternalObjectArrayNode arguments;
+  @Child protected SendNode                send;
 
-  protected final SSymbol selector;
-  protected final RootCallTarget onReceive;
-  @Children protected final WrapReferenceNode[] wrapArgs;
-
-  public EventualSendNode(final SSymbol selector,
-      final int numArgs, final SourceSection source) {
-    super(source);
-    this.selector = selector;
-
-    onReceive = createOnReceiveCallTarget(selector, numArgs, source);
-    wrapArgs  = createArgWrapper(numArgs);
+  public EventualSendNode(final SSymbol selector, final int numArgs,
+      final InternalObjectArrayNode arguments, final SourceSection source,
+      final SourceSection sendOperator, final SomLanguage lang) {
+    this.arguments = arguments;
+    this.send = SendNodeGen.create(selector, createArgWrapper(numArgs),
+        createOnReceiveCallTarget(selector, source, lang),
+        sendOperator, lang.getVM());
+    initialize(source);
   }
 
-  /**
-   * Use for wrapping node only.
-   */
-  protected EventualSendNode(final EventualSendNode wrappedNode) {
-    super((SourceSection) null);
-    selector  = null;
-    onReceive = null;
-    wrapArgs  = null;
+  /** For wrappers. */
+  protected EventualSendNode() {}
+
+  @Override
+  public WrapperNode createWrapper(final ProbeNode probe) {
+    return new EventualSendNodeWrapper(this, probe);
   }
 
-  private static RootCallTarget createOnReceiveCallTarget(final SSymbol selector,
-      final int numArgs, final SourceSection source) {
+  @Override
+  public Object executeGeneric(final VirtualFrame frame) {
+    Object[] args = arguments.executeObjectArray(frame);
+    return send.execute(frame, args);
+  }
+
+  public static RootCallTarget createOnReceiveCallTarget(final SSymbol selector,
+      final SourceSection source, final SomLanguage lang) {
 
     AbstractMessageSendNode invoke = MessageSendNode.createGeneric(selector, null, source);
-    ReceivedMessage receivedMsg = new ReceivedMessage(invoke, selector);
+    ReceivedMessage receivedMsg = new ReceivedMessage(invoke, selector, lang);
 
     return Truffle.getRuntime().createCallTarget(receivedMsg);
   }
 
   public static RootCallTarget createOnReceiveCallTargetForVMMain(final SSymbol selector,
-      final int numArgs, final SourceSection source, final CompletableFuture<Object> future) {
+      final int numArgs, final SourceSection source,
+      final CompletableFuture<Object> future, final SomLanguage lang) {
 
     AbstractMessageSendNode invoke = MessageSendNode.createGeneric(selector, null, source);
-    ReceivedMessage receivedMsg = new ReceivedMessageForVMMain(invoke, selector, future);
+    ReceivedMessage receivedMsg = new ReceivedMessageForVMMain(invoke, selector, future, lang);
 
     return Truffle.getRuntime().createCallTarget(receivedMsg);
   }
@@ -81,124 +100,239 @@ public abstract class EventualSendNode extends ExprWithTagsNode {
     return wrapper;
   }
 
-  protected static final boolean isFarRefRcvr(final Object[] args) {
-    return args[0] instanceof SFarReference;
-  }
-
-  protected static final boolean isPromiseRcvr(final Object[] args) {
-    return args[0] instanceof SPromise;
-  }
-
-  protected final boolean isResultUsed() {
-    return isResultUsed(null);
-  }
-
   @Override
   public boolean isResultUsed(final ExpressionNode child) {
-    Node parent = getParent();
+    return isParentResultUsed(this, this);
+  }
+
+  public static boolean isParentResultUsed(final Node current, final Node child) {
+    Node parent = SOMNode.getParentIgnoringWrapper(current);
+
     assert parent != null;
     if (parent instanceof ExpressionNode) {
-      return ((ExpressionNode) parent).isResultUsed(this);
+      return ((ExpressionNode) parent).isResultUsed((ExpressionNode) child);
     }
     return true;
   }
 
-  @Specialization(guards = {"isResultUsed()", "isFarRefRcvr(args)"})
-  public final SPromise toFarRefWithResultPromise(final Object[] args) {
-    Actor owner = EventualMessage.getActorCurrentMessageIsExecutionOn();
+  @GenerateWrapper
+  public abstract static class SendNode extends Node implements InstrumentableNode {
+    protected final SSymbol                       selector;
+    @Children protected final WrapReferenceNode[] wrapArgs;
+    protected final RootCallTarget                onReceive;
 
-    SPromise  result   = SPromise.createPromise(owner);
-    SResolver resolver = SPromise.createResolver(result, "eventualSend:", selector);
+    protected final SourceSection source;
+    protected final ForkJoinPool  actorPool;
 
-    sendDirectMessage(args, owner, resolver);
+    @Child protected AbstractBreakpointNode messageReceiverBreakpoint;
+    @Child protected AbstractBreakpointNode promiseResolverBreakpoint;
+    @Child protected AbstractBreakpointNode promiseResolutionBreakpoint;
 
-    return result;
-  }
+    protected SendNode(final SSymbol selector, final WrapReferenceNode[] wrapArgs,
+        final RootCallTarget onReceive, final SourceSection source, final VM vm) {
+      this.selector = selector;
+      this.wrapArgs = wrapArgs;
+      this.onReceive = onReceive;
+      this.source = source;
 
-  @Specialization(guards = {"!isResultUsed()", "isFarRefRcvr(args)"})
-  public final Object toFarRefWithoutResultPromise(final Object[] args) {
-    Actor owner = EventualMessage.getActorCurrentMessageIsExecutionOn();
-
-    sendDirectMessage(args, owner, null);
-
-    return Nil.nilObject;
-  }
-
-  @ExplodeLoop
-  private void sendDirectMessage(final Object[] args, final Actor owner,
-      final SResolver resolver) {
-    CompilerAsserts.compilationConstant(args.length);
-
-    SFarReference rcvr = (SFarReference) args[0];
-    Actor target = rcvr.getActor();
-
-    for (int i = 0; i < args.length; i++) {
-      args[i] = wrapArgs[i].execute(args[i], target, owner);
+      if (selector == null) {
+        // this node is going to be used as a wrapper node
+        this.messageReceiverBreakpoint = null;
+        this.promiseResolverBreakpoint = null;
+        this.promiseResolutionBreakpoint = null;
+        this.actorPool = null;
+      } else {
+        this.actorPool = vm.getActorPool();
+        this.messageReceiverBreakpoint =
+            insert(Breakpoints.create(source, BreakpointType.MSG_RECEIVER, vm));
+        this.promiseResolverBreakpoint =
+            insert(Breakpoints.create(source, BreakpointType.PROMISE_RESOLVER, vm));
+        this.promiseResolutionBreakpoint =
+            insert(Breakpoints.create(source, BreakpointType.PROMISE_RESOLUTION, vm));
+      }
     }
 
-    assert !(args[0] instanceof SFarReference) : "This should not happen for this specialization, but it is handled in determineTargetAndWrapArguments(.)";
-    assert !(args[0] instanceof SPromise) : "Should not happen either, but just to be sure";
+    /**
+     * Use for wrapping node only.
+     */
+    protected SendNode() {
+      this(null, null, null, null, null);
+    }
 
+    public abstract Object execute(VirtualFrame frame, Object[] args);
 
-    DirectMessage msg = new DirectMessage(target, selector, args, owner,
-        resolver, onReceive);
-    target.send(msg);
-  }
+    @Override
+    public boolean isInstrumentable() {
+      return true;
+    }
 
-  protected static RegisterWhenResolved createRegisterNode() {
-    return new RegisterWhenResolved();
-  }
+    @Override
+    public WrapperNode createWrapper(final ProbeNode probe) {
+      return new SendNodeWrapper(this, probe);
+    }
 
-  @Specialization(guards = {"isResultUsed()", "isPromiseRcvr(args)"})
-  public final SPromise toPromiseWithResultPromise(final Object[] args,
-      @Cached("createRegisterNode()") final RegisterWhenResolved registerNode) {
-    SPromise rcvr = (SPromise) args[0];
-    SPromise  promise  = SPromise.createPromise(EventualMessage.getActorCurrentMessageIsExecutionOn());
-    SResolver resolver = SPromise.createResolver(promise, "eventualSendToPromise:", selector);
+    @Override
+    public SourceSection getSourceSection() {
+      return source;
+    }
 
-    sendPromiseMessage(args, rcvr, resolver, registerNode);
-    return promise;
-  }
+    protected final boolean isResultUsed() {
+      Node parent = SOMNode.getParentIgnoringWrapper(this);
+      assert parent instanceof EventualSendNode;
+      return isParentResultUsed(parent, parent);
+    }
 
-  @Specialization(guards = {"!isResultUsed()", "isPromiseRcvr(args)"})
-  public final Object toPromiseWithoutResultPromise(final Object[] args,
-      @Cached("createRegisterNode()") final RegisterWhenResolved registerNode) {
-    sendPromiseMessage(args, (SPromise) args[0], null, registerNode);
-    return Nil.nilObject;
-  }
+    protected static final boolean isFarRefRcvr(final Object[] args) {
+      return args[0] instanceof SFarReference;
+    }
 
-  private void sendPromiseMessage(final Object[] args, final SPromise rcvr,
-      final SResolver resolver, final RegisterWhenResolved registerNode) {
-    assert rcvr.getOwner() == EventualMessage.getActorCurrentMessageIsExecutionOn() : "think this should be true because the promise is an Object and owned by this specific actor";
-    PromiseSendMessage msg = new PromiseSendMessage(selector, args, rcvr.getOwner(), resolver, onReceive);
+    protected static final boolean isPromiseRcvr(final Object[] args) {
+      return args[0] instanceof SPromise;
+    }
 
-    registerNode.register(rcvr, msg, rcvr.getOwner());
-  }
+    @ExplodeLoop
+    protected void sendDirectMessage(final Object[] args, final Actor owner,
+        final SResolver resolver) {
+      CompilerAsserts.compilationConstant(args.length);
 
-  @Specialization(guards = {"isResultUsed()", "!isFarRefRcvr(args)", "!isPromiseRcvr(args)"})
-  public final SPromise toNearRefWithResultPromise(final Object[] args) {
-    Actor current = EventualMessage.getActorCurrentMessageIsExecutionOn();
-    SPromise  result   = SPromise.createPromise(current);
-    SResolver resolver = SPromise.createResolver(result, "eventualSend:", selector);
+      SFarReference rcvr = (SFarReference) args[0];
+      Actor target = rcvr.getActor();
 
-    DirectMessage msg = new DirectMessage(current, selector, args, current,
-        resolver, onReceive);
-    current.send(msg);
+      for (int i = 0; i < args.length; i++) {
+        args[i] = wrapArgs[i].execute(args[i], target, owner);
+      }
 
-    return result;
-  }
+      assert !(args[0] instanceof SFarReference) : "This should not happen for this specialization, but it is handled in determineTargetAndWrapArguments(.)";
+      assert !(args[0] instanceof SPromise) : "Should not happen either, but just to be sure";
 
-  @Specialization(guards = {"!isResultUsed()", "!isFarRefRcvr(args)", "!isPromiseRcvr(args)"})
-  public final Object toNearRefWithoutResultPromise(final Object[] args) {
-    Actor current = EventualMessage.getActorCurrentMessageIsExecutionOn();
-    DirectMessage msg = new DirectMessage(current, selector, args, current,
-        null, onReceive);
-    current.send(msg);
-    return Nil.nilObject;
-  }
+      DirectMessage msg = new DirectMessage(target, selector, args,
+          owner, resolver, onReceive,
+          messageReceiverBreakpoint.executeShouldHalt(),
+          promiseResolverBreakpoint.executeShouldHalt());
 
-  @Override
-  public String toString() {
-    return "EventSend[" + selector.toString() + "]";
+      if (VmSettings.KOMPOS_TRACING) {
+        KomposTrace.sendOperation(SendOp.ACTOR_MSG, msg.getMessageId(),
+            target.getId());
+      }
+
+      target.send(msg, actorPool);
+    }
+
+    protected void sendPromiseMessage(final Object[] args, final SPromise rcvr,
+        final SResolver resolver, final RegisterWhenResolved registerNode) {
+      assert rcvr.getOwner() == EventualMessage.getActorCurrentMessageIsExecutionOn() : "think this should be true because the promise is an Object and owned by this specific actor";
+
+      PromiseSendMessage msg = new PromiseSendMessage(selector, args,
+          rcvr.getOwner(), resolver, onReceive,
+          messageReceiverBreakpoint.executeShouldHalt(),
+          promiseResolverBreakpoint.executeShouldHalt());
+
+      if (VmSettings.KOMPOS_TRACING) {
+        KomposTrace.sendOperation(SendOp.PROMISE_MSG, msg.getMessageId(),
+            rcvr.getPromiseId());
+      }
+
+      registerNode.register(rcvr, msg, rcvr.getOwner());
+    }
+
+    protected RegisterWhenResolved createRegisterNode() {
+      return new RegisterWhenResolved(actorPool);
+    }
+
+    @Override
+    public String toString() {
+      return "EventSend[" + selector.toString() + "]";
+    }
+
+    @Specialization(guards = {"isResultUsed()", "isFarRefRcvr(args)"})
+    public final SPromise toFarRefWithResultPromise(final Object[] args) {
+      Actor owner = EventualMessage.getActorCurrentMessageIsExecutionOn();
+
+      SPromise result = SPromise.createPromise(owner,
+          false, promiseResolutionBreakpoint.executeShouldHalt(), source);
+      SResolver resolver = SPromise.createResolver(result);
+
+      sendDirectMessage(args, owner, resolver);
+
+      return result;
+    }
+
+    @Specialization(guards = {"isResultUsed()", "isPromiseRcvr(args)"})
+    public final SPromise toPromiseWithResultPromise(final Object[] args,
+        @Cached("createRegisterNode()") final RegisterWhenResolved registerNode) {
+      SPromise rcvr = (SPromise) args[0];
+
+      SPromise promise = SPromise.createPromise(
+          EventualMessage.getActorCurrentMessageIsExecutionOn(),
+          false, promiseResolutionBreakpoint.executeShouldHalt(), source);
+      SResolver resolver = SPromise.createResolver(promise);
+
+      sendPromiseMessage(args, rcvr, resolver, registerNode);
+      return promise;
+    }
+
+    @Specialization(guards = {"isResultUsed()", "!isFarRefRcvr(args)", "!isPromiseRcvr(args)"})
+    public final SPromise toNearRefWithResultPromise(final Object[] args) {
+      Actor current = EventualMessage.getActorCurrentMessageIsExecutionOn();
+
+      SPromise result = SPromise.createPromise(current,
+          false, promiseResolutionBreakpoint.executeShouldHalt(), source);
+      SResolver resolver = SPromise.createResolver(result);
+
+      DirectMessage msg = new DirectMessage(current, selector, args, current,
+          resolver, onReceive,
+          messageReceiverBreakpoint.executeShouldHalt(),
+          promiseResolverBreakpoint.executeShouldHalt());
+
+      if (VmSettings.KOMPOS_TRACING) {
+        KomposTrace.sendOperation(SendOp.ACTOR_MSG, msg.getMessageId(),
+            current.getId());
+      }
+
+      current.send(msg, actorPool);
+
+      return result;
+    }
+
+    @Specialization(guards = {"!isResultUsed()", "isFarRefRcvr(args)"})
+    public final Object toFarRefWithoutResultPromise(final Object[] args) {
+      Actor owner = EventualMessage.getActorCurrentMessageIsExecutionOn();
+
+      sendDirectMessage(args, owner, null);
+
+      return Nil.nilObject;
+    }
+
+    @Specialization(guards = {"!isResultUsed()", "isPromiseRcvr(args)"})
+    public final Object toPromiseWithoutResultPromise(final Object[] args,
+        @Cached("createRegisterNode()") final RegisterWhenResolved registerNode) {
+      sendPromiseMessage(args, (SPromise) args[0], null, registerNode);
+      return Nil.nilObject;
+    }
+
+    @Specialization(
+        guards = {"!isResultUsed()", "!isFarRefRcvr(args)", "!isPromiseRcvr(args)"})
+    public final Object toNearRefWithoutResultPromise(final Object[] args) {
+      Actor current = EventualMessage.getActorCurrentMessageIsExecutionOn();
+
+      DirectMessage msg = new DirectMessage(current, selector, args, current,
+          null, onReceive,
+          messageReceiverBreakpoint.executeShouldHalt(),
+          promiseResolverBreakpoint.executeShouldHalt());
+
+      if (VmSettings.KOMPOS_TRACING) {
+        KomposTrace.sendOperation(SendOp.ACTOR_MSG, msg.getMessageId(),
+            current.getId());
+      }
+
+      current.send(msg, actorPool);
+      return Nil.nilObject;
+    }
+
+    @Override
+    public boolean hasTag(final Class<? extends Tag> tag) {
+      return tag == EventualMessageSend.class || tag == ExpressionBreakpoint.class
+          || tag == StatementTag.class;
+    }
   }
 }

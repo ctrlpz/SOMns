@@ -5,22 +5,31 @@ import java.util.Map;
 import java.util.Set;
 
 import com.oracle.truffle.api.instrumentation.Instrumenter;
+import com.oracle.truffle.api.instrumentation.Tag;
 import com.oracle.truffle.api.nodes.RootNode;
 import com.oracle.truffle.api.source.SourceSection;
 
-import tools.highlight.Tags;
 
 public abstract class Tagging {
-  private Tagging() { }
+  private Tagging() {}
 
   public static void collectSourceSectionsAndTags(
       final Iterable<RootNode> rootNodes,
-      final Map<SourceSection, Set<Class<? extends Tags>>> sourceSectionsAndTags,
+      final Map<SourceSection, Set<Class<? extends Tag>>> sourceSectionsAndTags,
       final Instrumenter instrumenter) {
+    if (rootNodes == null) {
+      return;
+    }
     for (RootNode root : rootNodes) {
       root.accept(node -> {
-        @SuppressWarnings("rawtypes")  Set t = instrumenter.queryTags(node);
-        @SuppressWarnings("unchecked") Set<Class<? extends Tags>> tags = t;
+        @SuppressWarnings("rawtypes")
+        Set t = instrumenter.queryTags(node);
+        @SuppressWarnings("unchecked")
+        Set<Class<? extends Tag>> tags = t;
+
+        if (node.getSourceSection() == null) {
+          return true;
+        }
 
         if (tags.size() > 0) {
           if (sourceSectionsAndTags.containsKey(node.getSourceSection())) {

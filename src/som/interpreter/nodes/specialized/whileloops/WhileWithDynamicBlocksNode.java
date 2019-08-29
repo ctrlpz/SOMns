@@ -1,12 +1,11 @@
 package som.interpreter.nodes.specialized.whileloops;
 
+import com.oracle.truffle.api.CompilerAsserts;
+import com.oracle.truffle.api.frame.VirtualFrame;
+
 import som.vm.NotYetImplementedException;
 import som.vmobjects.SBlock;
 import som.vmobjects.SInvokable;
-
-import com.oracle.truffle.api.CompilerAsserts;
-import com.oracle.truffle.api.frame.VirtualFrame;
-import com.oracle.truffle.api.source.SourceSection;
 
 
 public final class WhileWithDynamicBlocksNode extends AbstractWhileNode {
@@ -15,12 +14,12 @@ public final class WhileWithDynamicBlocksNode extends AbstractWhileNode {
 
   public static WhileWithDynamicBlocksNode create(final SBlock rcvr,
       final SBlock arg, final boolean predicateBool) {
-    return new WhileWithDynamicBlocksNode(rcvr, arg, predicateBool, null);
+    return new WhileWithDynamicBlocksNode(rcvr, arg, predicateBool);
   }
 
-  public WhileWithDynamicBlocksNode(final SBlock rcvr, final SBlock arg,
-      final boolean predicateBool, final SourceSection source) {
-    super(rcvr, arg, predicateBool, source);
+  private WhileWithDynamicBlocksNode(final SBlock rcvr, final SBlock arg,
+      final boolean predicateBool) {
+    super(rcvr, arg, predicateBool);
     conditionMethod = rcvr.getMethod();
     bodyMethod = arg.getMethod();
   }
@@ -32,11 +31,10 @@ public final class WhileWithDynamicBlocksNode extends AbstractWhileNode {
   }
 
   @Override
-  protected Object doWhileConditionally(final VirtualFrame frame,
-      final SBlock loopCondition,
+  protected Object doWhileConditionally(final SBlock loopCondition,
       final SBlock loopBody) {
     assert loopCondition.getMethod() == conditionMethod;
-    assert loopBody.getMethod()      == bodyMethod;
-    return doWhileUnconditionally(frame, loopCondition, loopBody);
+    assert loopBody.getMethod() == bodyMethod;
+    return doWhileUnconditionally(loopCondition, loopBody);
   }
 }

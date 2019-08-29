@@ -1,17 +1,18 @@
 package som.interpreter.nodes.dispatch;
 
 import static som.interpreter.TruffleCompiler.transferToInterpreterAndInvalidate;
-import som.vmobjects.SInvokable;
 
 import com.oracle.truffle.api.Truffle;
-import com.oracle.truffle.api.frame.VirtualFrame;
 import com.oracle.truffle.api.nodes.DirectCallNode;
 import com.oracle.truffle.api.nodes.IndirectCallNode;
 import com.oracle.truffle.api.nodes.Node;
 
+import som.vm.VmSettings;
+import som.vmobjects.SInvokable;
+
 
 public abstract class InvokeOnCache extends Node implements DispatchChain {
-  public static final int INLINE_CACHE_SIZE = 6;
+  public static final int INLINE_CACHE_SIZE = VmSettings.DYNAMIC_METRICS ? 100 : 6;
 
   public static InvokeOnCache create() {
     return new UninitializedDispatchNode(0);
@@ -23,8 +24,7 @@ public abstract class InvokeOnCache extends Node implements DispatchChain {
     this.depth = depth;
   }
 
-  public abstract Object executeDispatch(VirtualFrame frame,
-      SInvokable invokable, Object[] arguments);
+  public abstract Object executeDispatch(SInvokable invokable, Object[] arguments);
 
   private static final class UninitializedDispatchNode extends InvokeOnCache {
 
@@ -46,11 +46,10 @@ public abstract class InvokeOnCache extends Node implements DispatchChain {
     }
 
     @Override
-    public Object executeDispatch(final VirtualFrame frame,
-        final SInvokable invokable, final Object[] arguments) {
+    public Object executeDispatch(final SInvokable invokable,
+        final Object[] arguments) {
       transferToInterpreterAndInvalidate("Initialize a dispatch node.");
-      return specialize(invokable).
-          executeDispatch(frame, invokable, arguments);
+      return specialize(invokable).executeDispatch(invokable, arguments);
     }
 
     private InvokeOnCache determineChainHead() {
@@ -68,9 +67,9 @@ public abstract class InvokeOnCache extends Node implements DispatchChain {
   }
 
   private static final class CachedDispatchNode extends InvokeOnCache {
-    private final SInvokable invokable;
+    private final SInvokable      invokable;
     @Child private DirectCallNode callNode;
-    @Child private InvokeOnCache nextInCache;
+    @Child private InvokeOnCache  nextInCache;
 
     CachedDispatchNode(final SInvokable invokable,
         final InvokeOnCache nextInCache, final int depth) {
@@ -81,12 +80,12 @@ public abstract class InvokeOnCache extends Node implements DispatchChain {
     }
 
     @Override
-    public Object executeDispatch(final VirtualFrame frame,
-        final SInvokable invokable, final Object[] arguments) {
+    public Object executeDispatch(final SInvokable invokable,
+        final Object[] arguments) {
       if (this.invokable == invokable) {
-        return callNode.call(frame, arguments);
+        return callNode.call(arguments);
       } else {
-        return nextInCache.executeDispatch(frame, invokable, arguments);
+        return nextInCache.executeDispatch(invokable, arguments);
       }
     }
 
@@ -106,9 +105,9 @@ public abstract class InvokeOnCache extends Node implements DispatchChain {
     }
 
     @Override
-    public Object executeDispatch(final VirtualFrame frame,
-        final SInvokable invokable, final Object[] arguments) {
-      return callNode.call(frame, invokable.getCallTarget(), arguments);
+    public Object executeDispatch(final SInvokable invokable,
+        final Object[] arguments) {
+      return callNode.call(invokable.getCallTarget(), arguments);
     }
 
     @Override

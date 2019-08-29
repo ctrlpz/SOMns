@@ -2,27 +2,41 @@ package som.interpreter.nodes.specialized;
 
 import com.oracle.truffle.api.Truffle;
 import com.oracle.truffle.api.dsl.Cached;
+import com.oracle.truffle.api.dsl.GenerateNodeFactory;
 import com.oracle.truffle.api.dsl.Specialization;
-import com.oracle.truffle.api.frame.VirtualFrame;
 import com.oracle.truffle.api.nodes.DirectCallNode;
 import com.oracle.truffle.api.nodes.IndirectCallNode;
 import com.oracle.truffle.api.profiles.ConditionProfile;
-import com.oracle.truffle.api.source.SourceSection;
 
+import bd.primitives.Primitive;
 import som.interpreter.nodes.nary.BinaryComplexOperation;
 import som.vm.constants.Nil;
 import som.vmobjects.SBlock;
 import som.vmobjects.SInvokable;
-import tools.dym.Tags.ControlFlowCondition;
 
 
 public abstract class IfMessageNode extends BinaryComplexOperation {
 
-  protected final ConditionProfile condProf = ConditionProfile.createCountingProfile();
-  private final boolean expected;
+  @GenerateNodeFactory
+  @Primitive(selector = "ifTrue:", noWrapper = true)
+  public abstract static class IfTrueMessageNode extends IfMessageNode {
+    public IfTrueMessageNode() {
+      super(true);
+    }
+  }
 
-  public IfMessageNode(final boolean expected, final SourceSection source) {
-    super(false, source);
+  @GenerateNodeFactory
+  @Primitive(selector = "ifFalse:", noWrapper = true)
+  public abstract static class IfFalseMessageNode extends IfMessageNode {
+    public IfFalseMessageNode() {
+      super(false);
+    }
+  }
+
+  protected final ConditionProfile condProf = ConditionProfile.createCountingProfile();
+  private final boolean            expected;
+
+  protected IfMessageNode(final boolean expected) {
     this.expected = expected;
   }
 
@@ -34,32 +48,22 @@ public abstract class IfMessageNode extends BinaryComplexOperation {
     return Truffle.getRuntime().createIndirectCallNode();
   }
 
-  @Override
-  protected boolean isTaggedWithIgnoringEagerness(final Class<?> tag) {
-    if (tag == ControlFlowCondition.class) {
-      return true;
-    } else {
-      return super.isTaggedWithIgnoringEagerness(tag);
-    }
-  }
-
   @Specialization(guards = {"arg.getMethod() == method"})
-  public final Object cachedBlock(final VirtualFrame frame, final boolean rcvr, final SBlock arg,
+  public final Object cachedBlock(final boolean rcvr, final SBlock arg,
       @Cached("arg.getMethod()") final SInvokable method,
       @Cached("createDirect(method)") final DirectCallNode callTarget) {
     if (condProf.profile(rcvr == expected)) {
-      return callTarget.call(frame, new Object[] {arg});
+      return callTarget.call(new Object[] {arg});
     } else {
       return Nil.nilObject;
     }
   }
 
-  @Specialization(contains = "cachedBlock")
-  public final Object fallback(final VirtualFrame frame, final boolean rcvr,
-      final SBlock arg,
+  @Specialization(replaces = "cachedBlock")
+  public final Object fallback(final boolean rcvr, final SBlock arg,
       @Cached("createIndirect()") final IndirectCallNode callNode) {
     if (condProf.profile(rcvr == expected)) {
-      return callNode.call(frame, arg.getMethod().getCallTarget(), new Object[] {arg});
+      return callNode.call(arg.getMethod().getCallTarget(), new Object[] {arg});
     } else {
       return Nil.nilObject;
     }

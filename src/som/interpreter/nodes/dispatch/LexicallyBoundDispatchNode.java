@@ -6,9 +6,8 @@ import com.oracle.truffle.api.frame.VirtualFrame;
 import com.oracle.truffle.api.nodes.DirectCallNode;
 import com.oracle.truffle.api.source.SourceSection;
 
-import som.VM;
-import som.VmSettings;
 import som.instrumentation.InstrumentableDirectCallNode;
+import som.vm.VmSettings;
 
 
 /**
@@ -19,19 +18,18 @@ public final class LexicallyBoundDispatchNode extends AbstractDispatchNode {
 
   @Child private DirectCallNode cachedMethod;
 
-  public LexicallyBoundDispatchNode(final SourceSection source, final CallTarget methodCallTarget) {
+  public LexicallyBoundDispatchNode(final SourceSection source,
+      final CallTarget methodCallTarget) {
     super(source);
     cachedMethod = Truffle.getRuntime().createDirectCallNode(methodCallTarget);
     if (VmSettings.DYNAMIC_METRICS) {
-      this.cachedMethod = insert(
-          new InstrumentableDirectCallNode(cachedMethod, source));
-      VM.insertInstrumentationWrapper(cachedMethod);
+      this.cachedMethod = insert(new InstrumentableDirectCallNode(cachedMethod, source));
     }
   }
 
   @Override
   public Object executeDispatch(final VirtualFrame frame, final Object[] arguments) {
-    return cachedMethod.call(frame, arguments);
+    return cachedMethod.call(arguments);
   }
 
   @Override

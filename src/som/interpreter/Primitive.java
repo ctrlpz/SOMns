@@ -1,8 +1,5 @@
 package som.interpreter;
 
-import som.interpreter.LexicalScope.MethodScope;
-import som.interpreter.nodes.ExpressionNode;
-
 import com.oracle.truffle.api.CompilerAsserts;
 import com.oracle.truffle.api.RootCallTarget;
 import com.oracle.truffle.api.Truffle;
@@ -10,35 +7,59 @@ import com.oracle.truffle.api.frame.FrameDescriptor;
 import com.oracle.truffle.api.frame.FrameInstance;
 import com.oracle.truffle.api.frame.FrameInstanceVisitor;
 import com.oracle.truffle.api.nodes.Node;
+import com.oracle.truffle.api.nodes.NodeUtil;
+
+import som.compiler.MethodBuilder;
+import som.interpreter.actors.ResolvePromiseNode;
+import som.interpreter.nodes.ExpressionNode;
+import som.interpreter.nodes.SOMNode;
+import som.primitives.ObjectPrims.HaltPrim;
+import som.vmobjects.SInvokable;
 
 
 public final class Primitive extends Invokable {
 
-  public Primitive(final ExpressionNode primitive,
+  public Primitive(final String name, final ExpressionNode primitive,
       final FrameDescriptor frameDescriptor,
-      final ExpressionNode uninitialized) {
-    super(null, frameDescriptor, primitive, uninitialized);
+      final ExpressionNode uninitialized, final boolean isAtomic,
+      final SomLanguage lang) {
+    super(name, null, frameDescriptor, primitive, uninitialized, isAtomic, lang);
   }
 
   @Override
-  public Invokable cloneWithNewLexicalContext(final MethodScope outerContext) {
-    assert outerContext == null;
-    FrameDescriptor inlinedFrameDescriptor = getFrameDescriptor().copy();
-    MethodScope  inlinedContext = new MethodScope(inlinedFrameDescriptor,
-        outerContext, null /* since we got an outer method scope, there won't be a direct class scope*/);
-    ExpressionNode  inlinedBody = SplitterForLexicallyEmbeddedCode.doInline(uninitializedBody,
-        inlinedContext);
-    return new Primitive(inlinedBody, inlinedFrameDescriptor, uninitializedBody);
+  public ExpressionNode inline(final MethodBuilder builder, final SInvokable outer) {
+    // Note for completeness: for primitives, we use eager specialization,
+    // which is essentially much simpler inlining
+    throw new UnsupportedOperationException(
+        "Primitives are currently not directly inlined. Only block methods are.");
   }
 
   @Override
   public Node deepCopy() {
-    return cloneWithNewLexicalContext(null);
+    assert getFrameDescriptor().getSize() == 0;
+    return new Primitive(name, NodeUtil.cloneNode(uninitializedBody),
+        getFrameDescriptor(), uninitializedBody, isAtomic,
+        SomLanguage.getLanguage(this));
+  }
+
+  @Override
+  public Invokable createAtomic() {
+    assert !isAtomic : "We should only ask non-atomic invokables for their atomic version";
+    ExpressionNode atomic = NodeUtil.cloneNode(uninitializedBody);
+    ExpressionNode uninitAtomic = NodeUtil.cloneNode(atomic);
+
+    return new Primitive(name, atomic, getFrameDescriptor(), uninitAtomic, true,
+        SomLanguage.getLanguage(this));
   }
 
   @Override
   public String toString() {
-    return "Primitive " + expressionOrSequence.getClass().getSimpleName() + "@" + Integer.toHexString(hashCode());
+    ExpressionNode n = SOMNode.unwrapIfNecessary(expressionOrSequence);
+    String nodeType = n.getClass().getSimpleName();
+    if (n != expressionOrSequence) {
+      nodeType += " (wrapped)"; // indicate that it is wrapped
+    }
+    return "Primitive " + nodeType + "@" + Integer.toHexString(hashCode());
   }
 
   @Override
@@ -52,22 +73,23 @@ public final class Primitive extends Invokable {
    */
   @Override
   protected boolean isInstrumentable() {
-    return false;
+    return expressionOrSequence instanceof HaltPrim
+        || expressionOrSequence instanceof ResolvePromiseNode;
   }
 
   private static Method getNextMethodOnStack() {
     return Truffle.getRuntime().iterateFrames(new FrameInstanceVisitor<Method>() {
-        @Override
-        public Method visitFrame(final FrameInstance frameInstance) {
-          RootCallTarget ct = (RootCallTarget) frameInstance.getCallTarget();
-          Invokable m = (Invokable) ct.getRootNode();
-          if (m instanceof Primitive) {
-            return null;
-          } else {
-            return (Method) m;
-          }
+      @Override
+      public Method visitFrame(final FrameInstance frameInstance) {
+        RootCallTarget ct = (RootCallTarget) frameInstance.getCallTarget();
+        Invokable m = (Invokable) ct.getRootNode();
+        if (m instanceof Primitive) {
+          return null;
+        } else {
+          return (Method) m;
         }
-      });
+      }
+    });
   }
 
   public static void propagateLoopCount(final long count) {
@@ -76,7 +98,7 @@ public final class Primitive extends Invokable {
     // we need to skip the primitive and get to the method that called the primitive
     FrameInstance caller = Truffle.getRuntime().getCallerFrame();
 
-    RootCallTarget ct = (RootCallTarget) caller.getCallTarget();  // caller method
+    RootCallTarget ct = (RootCallTarget) caller.getCallTarget(); // caller method
     Invokable m = (Invokable) ct.getRootNode();
 
     if (m instanceof Primitive) {

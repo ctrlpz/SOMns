@@ -2,25 +2,28 @@ package som.primitives;
 
 import java.math.BigInteger;
 
+import com.oracle.truffle.api.CompilerDirectives.TruffleBoundary;
 import com.oracle.truffle.api.dsl.GenerateNodeFactory;
 import com.oracle.truffle.api.dsl.ImportStatic;
 import com.oracle.truffle.api.dsl.Specialization;
-import com.oracle.truffle.api.source.SourceSection;
 
+import bd.primitives.Primitive;
 import som.interpreter.actors.SFarReference;
 import som.vm.constants.Nil;
 import som.vmobjects.SObject.SImmutableObject;
 import som.vmobjects.SObjectWithClass;
+import som.vmobjects.SObjectWithClass.SObjectWithoutFields;
 import som.vmobjects.SSymbol;
 
 
 @GenerateNodeFactory
 @ImportStatic(Nil.class)
-@Primitive({"value:sameAs:", "int:equals:", "double:equals:", "string:equals:"})
+@Primitive(primitive = "value:sameAs:")
+@Primitive(primitive = "int:equals:")
+@Primitive(primitive = "double:equals:")
+@Primitive(primitive = "string:equals:")
+@Primitive(selector = "=")
 public abstract class EqualsPrim extends ComparisonPrim {
-  protected EqualsPrim(final boolean eagWrap, final SourceSection source) { super(eagWrap, source); }
-  protected EqualsPrim(final SourceSection source) { super(false, source); }
-
   @Specialization
   public final boolean doBoolean(final boolean left, final boolean right) {
     return left == right;
@@ -32,6 +35,7 @@ public abstract class EqualsPrim extends ComparisonPrim {
   }
 
   @Specialization
+  @TruffleBoundary
   public final boolean doBigInteger(final BigInteger left, final BigInteger right) {
     return left.compareTo(right) == 0;
   }
@@ -54,7 +58,7 @@ public abstract class EqualsPrim extends ComparisonPrim {
   @Specialization
   public final boolean doFarReferences(final SFarReference left, final SFarReference right) {
     // TODO: this is not yet complete, the value compare should be perhaps more than
-    //       identity
+    // identity
     return left == right ||
         (left.getActor() == right.getActor() && left.getValue() == right.getValue());
   }
@@ -75,11 +79,29 @@ public abstract class EqualsPrim extends ComparisonPrim {
   }
 
   @Specialization
+  @TruffleBoundary
   public final boolean doBigInteger(final BigInteger left, final long right) {
     return doBigInteger(left, BigInteger.valueOf(right));
   }
 
   @Specialization
+  @TruffleBoundary
+  public final boolean doBigInteger(final BigInteger left, final double right) {
+    // TODO: this needs to be properly specified, I don't really know what's
+    // the most useful semantics, but this comes 'close', I hope
+    return doBigInteger(left, BigInteger.valueOf((long) right));
+  }
+
+  @Specialization
+  @TruffleBoundary
+  public final boolean doDouble(final double left, final BigInteger right) {
+    // TODO: this needs to be properly specified, I don't really know what's
+    // the most useful semantics, but this comes 'close', I hope
+    return doBigInteger(BigInteger.valueOf((long) left), right);
+  }
+
+  @Specialization
+  @TruffleBoundary
   public final boolean doLong(final long left, final BigInteger right) {
     return doBigInteger(BigInteger.valueOf(left), right);
   }
@@ -115,7 +137,97 @@ public abstract class EqualsPrim extends ComparisonPrim {
   }
 
   @Specialization
+  public final boolean doLong(final long left, final boolean right) {
+    return false;
+  }
+
+  @Specialization
+  public final boolean doBigInteger(final BigInteger left, final String right) {
+    return false;
+  }
+
+  @Specialization
+  public final boolean doBigInteger(final BigInteger left, final SSymbol right) {
+    return false;
+  }
+
+  @Specialization
+  public final boolean doDouble(final double left, final boolean right) {
+    return false;
+  }
+
+  @Specialization
+  public final boolean doDouble(final double left, final String right) {
+    return false;
+  }
+
+  @Specialization
+  public final boolean doDouble(final double left, final SSymbol right) {
+    return false;
+  }
+
+  @Specialization(guards = "valueIsNil(right)")
+  public final boolean doDouble(final double left, final SObjectWithoutFields right) {
+    return false;
+  }
+
+  @Specialization
+  public final boolean doBoolean(final boolean left, final long right) {
+    return false;
+  }
+
+  @Specialization
+  public final boolean doBoolean(final boolean left, final BigInteger right) {
+    return false;
+  }
+
+  @Specialization
+  public final boolean doBoolean(final boolean left, final double right) {
+    return false;
+  }
+
+  @Specialization
+  public final boolean doBoolean(final boolean left, final String right) {
+    return false;
+  }
+
+  @Specialization
+  public final boolean doBoolean(final boolean left, final SSymbol right) {
+    return false;
+  }
+
+  @Specialization
+  public final boolean doBigInteger(final BigInteger left, final boolean right) {
+    return false;
+  }
+
+  @Specialization(guards = "valueIsNil(right)")
+  public final boolean doBigInteger(final BigInteger left, final SObjectWithoutFields right) {
+    return false;
+  }
+
+  @Specialization(guards = "valueIsNil(right)")
+  public final boolean doBoolean(final boolean left, final SObjectWithoutFields right) {
+    return false;
+  }
+
+  @Specialization
   public final boolean doString(final String receiver, final long argument) {
+    return false;
+  }
+
+  @Specialization
+  public final boolean doString(final String receiver, final boolean argument) {
+    return false;
+  }
+
+  @Specialization
+  public final boolean doString(final String receiver, final BigInteger argument) {
+    return false;
+  }
+
+  @Specialization
+  public final boolean doString(final String receiver, final double argument) {
     return false;
   }
 
@@ -126,6 +238,21 @@ public abstract class EqualsPrim extends ComparisonPrim {
 
   @Specialization
   public final boolean doSSymbol(final SSymbol receiver, final long argument) {
+    return false;
+  }
+
+  @Specialization
+  public final boolean doSSymbol(final SSymbol receiver, final boolean argument) {
+    return false;
+  }
+
+  @Specialization
+  public final boolean doSSymbol(final SSymbol receiver, final BigInteger argument) {
+    return false;
+  }
+
+  @Specialization
+  public final boolean doSSymbol(final SSymbol receiver, final double argument) {
     return false;
   }
 

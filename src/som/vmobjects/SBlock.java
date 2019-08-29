@@ -24,39 +24,53 @@
 
 package som.vmobjects;
 
-import som.interpreter.SArguments;
-
 import com.oracle.truffle.api.frame.MaterializedFrame;
+import com.oracle.truffle.api.interop.ArityException;
+import com.oracle.truffle.api.interop.InteropLibrary;
+import com.oracle.truffle.api.interop.UnsupportedMessageException;
+import com.oracle.truffle.api.interop.UnsupportedTypeException;
+import com.oracle.truffle.api.library.ExportLibrary;
+import com.oracle.truffle.api.library.ExportMessage;
 
-public final class SBlock extends SAbstractObject {
+import som.VM;
+import som.interop.ValueConversion;
+import som.interop.ValueConversion.ToSomConversion;
+import som.interop.ValueConversionFactory.ToSomConversionNodeGen;
+import som.interpreter.nodes.dispatch.BlockDispatchNode;
+import som.interpreter.nodes.dispatch.BlockDispatchNodeGen;
+import som.interpreter.objectstorage.ObjectTransitionSafepoint;
+import som.vm.constants.Classes;
+import som.vm.constants.Nil;
+
+
+@ExportLibrary(InteropLibrary.class)
+public final class SBlock extends SAbstractObject implements SObjectWithContext {
 
   private final SInvokable        method;
   private final MaterializedFrame context;
-  private final SClass            blockClass;
 
-  public SBlock(final SInvokable blockMethod, final MaterializedFrame context,
-      final SClass blockClass) {
-    this.method     = blockMethod;
-    this.context    = context;
-    this.blockClass = blockClass;
+  public SBlock(final SInvokable blockMethod, final MaterializedFrame context) {
+    this.method = blockMethod;
+    this.context = context;
   }
 
   public SInvokable getMethod() {
     return method;
   }
 
+  @Override
   public MaterializedFrame getContext() {
     assert context != null;
     return context;
   }
 
-  public Object getOuterSelf() {
-    return SArguments.rcvr(getContext());
+  public MaterializedFrame getContextOrNull() {
+    return context;
   }
 
   @Override
   public SClass getSOMClass() {
-    return blockClass;
+    return Classes.blockClass;
   }
 
   @Override
@@ -67,5 +81,34 @@ public final class SBlock extends SAbstractObject {
   @Override
   public String toString() {
     return super.toString() + "[" + method.toString() + "]";
+  }
+
+  @ExportMessage
+  public boolean isExecutable() {
+    return true;
+  }
+
+  @ExportMessage
+  public Object execute(final Object[] args)
+      throws UnsupportedTypeException, ArityException, UnsupportedMessageException {
+    VM.thisMethodNeedsToBeOptimized(
+        "Not ready for compilation, just moved from old interop code");
+    final BlockDispatchNode block = BlockDispatchNodeGen.create();
+    final ToSomConversion convert = ToSomConversionNodeGen.create(null);
+
+    ObjectTransitionSafepoint.INSTANCE.register();
+
+    try {
+      Object[] arguments = ValueConversion.convertToArgArray(convert, this, args);
+      Object result = block.executeDispatch(arguments);
+
+      if (result == Nil.nilObject) {
+        return null;
+      } else {
+        return result;
+      }
+    } finally {
+      ObjectTransitionSafepoint.INSTANCE.unregister();
+    }
   }
 }

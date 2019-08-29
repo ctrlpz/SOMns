@@ -1,0 +1,485 @@
+<html>
+<head>
+  <!-- Debugger Icons -->
+  <link href="/node_modules/font-awesome/css/font-awesome.css" rel="stylesheet" />
+  <link href="/node_modules/bootstrap/dist/css/bootstrap.css" rel="stylesheet" />
+  <link href="/node_modules/bootstrap/dist/css/bootstrap-reboot.css" rel="stylesheet" />
+  <script src="/node_modules/jquery/dist/jquery.js"></script>
+  <script src="/out/src/libs/jquery-resizable.js"></script>
+  <script src="/node_modules/popper.js/dist/umd/popper.js"></script>
+  <script src="/node_modules/bootstrap/dist/js/bootstrap.js"></script>
+  <script src="/node_modules/zenscroll/zenscroll.js"></script>
+
+  <script data-main="/out/src/main.js" src="/node_modules/requirejs/require.js"></script>
+
+  <title>Kompos Debugger</title>
+
+  <style id="style-main">
+    .demo #debugger-log {display: none;}
+    .demo #debugger table {display: none;}
+
+  #templates { display: none; }
+
+  .filename  { font-family: sans-serif; }
+  .source-file, .line-numbers {
+    font-family: monospace;
+    white-space: pre;
+  }
+  .line-numbers {
+    float: left;
+    text-align: right;
+    padding-left: 0.5em;
+    color: #ccc;
+    padding-right: 0.5em;
+  }
+  .ln {
+    cursor: pointer;
+  }
+
+
+  /* Profiling Tags */
+  /* Don't highlight these elements for the moment.
+  .RootTag {}
+  .RootTag::before { content: "\1F332";}
+  /*.LoopBody::before { content: "\21BB";}
+  .ControlFlowCondition::before { content: "\2928";} */
+
+  .UnspecifiedInvoke { font-style: italic; }
+  .ControlFlowCondition { color: #800; }
+  .VirtualInvoke, .CachedVirtualInvoke { font-style: italic; }
+  .NewObject { font-weight: bold; }
+  .NewArray { font-weight: bold; }
+  .FieldRead, .FieldWrite { font-style: italic; color: #194a87; }
+  .ArrayRead, .ArrayWrite { color: #f00; }
+
+  .MethodDeclaration { font-weight: bold; }
+
+  .breakpoint-active { background-color: #a40000; }
+
+  .section-breakpoint-active { border: 2px solid #f00; }
+
+  .table>tbody>tr>td, .table>tbody>tr>th {padding:0; border:0}
+
+  /* Syntax Highlighting
+http://emilis.info/other/extended_tango/
+https://github.com/ivyl/gedit-mate/blob/master/styles/Tango.xml
+  */
+  .CommentTag { color: #555753; }
+  .KeywordTag { color: #725000; }
+  .ExpressionBreakpoint {
+    background-color: #FFE4E1;
+    cursor: pointer;
+    font-weight: bold;
+    font-style: normal;
+  }
+  .IdentifierTag { color: #194a87; }
+  .LiteralTag { color: #4f9b00; }
+  .ArgumentTag, .LocalArgRead { color: #194a87; }
+  .LocalVariableTag, .LocalVarRead, .LocalVarWrite { color: #194a87; }
+
+  .DbgCurrentNode { background-color: #e0c0e4; }
+
+  .affix {
+    position: fixed;
+    top:   72px;
+    right:  0px;
+  }
+
+    /* Graph Style */
+  svg {
+    background-color: #FFF;
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
+    -o-user-select: none;
+    user-select: none;
+  }
+
+  /* svg:not(.active):not(.ctrl) {
+    cursor: crosshair;
+  } */
+
+  path.link {
+    fill: none;
+    stroke: #000;
+    stroke-width: 4px;
+    /*   cursor: default; */
+  }
+
+  path.creation-link {
+    fill: none;
+    stroke: #aaa;
+    stroke-width: 3px;
+    stroke-dasharray: 5,5;
+  }
+
+  /* svg:not(.active):not(.ctrl) path.link {
+    cursor: pointer;
+  } */
+
+  path.link.selected {
+    stroke-dasharray: 10,2;
+  }
+
+  path.link.dragline {
+    pointer-events: none;
+  }
+
+  path.link.hidden {
+    stroke-width: 0;
+  }
+
+  circle.node {
+    stroke-width: 1.5px;
+    /*   cursor: pointer; */
+  }
+
+  circle.node.reflexive {
+    stroke: #000 !important;
+    stroke-width: 2.5px;
+  }
+
+  text {
+    font: 12px sans-serif;
+    pointer-events: none;
+  }
+
+  text.id {
+    text-anchor: middle;
+    font-weight: bold;
+  }
+
+  .dropdown-content {
+    display: none;
+    position: absolute;
+    background-color: #f9f9f9;
+    box-shadow: 0px 8px 8px 0px rgba(0,0,0,0.2);
+    padding: 1px 1px;
+    font: 10px sans-serif;
+  }
+
+  #header  {padding-left: 3em; padding-top: 1ex}
+  #logo-bg {
+    padding-left: 1em;
+    padding-top: 1ex;
+    z-index: -10;
+    position: absolute;
+  }
+
+  #graphs-canvas {
+    margin-top: 2em;
+    width: 100%;
+    height: 30%;
+  }
+
+  #overview-canvas {
+    width: 50%;
+    height: 100%;
+    float:left;
+  }
+
+  #protocol-canvas {
+    width: 50%;
+    height: 100%;
+    float: left;
+    overflow: scroll;
+  }
+
+  #split-system-code {
+    width: 100%;
+    height: 3px;
+    cursor: ns-resize;
+    background-color: #eeeeee;
+  }
+  .activity { }
+  .code-pane {
+    max-height: 700px;
+    overflow: auto;
+  }
+
+  #code-views { column-count: 2; }
+  .demo #code-views { column-count: 1; }
+
+  #debugger button {
+    font-size: 75%;
+    padding: 2px 6px 3px;
+  }
+  .activity-fold {
+    position: absolute;
+    right: 5%;
+    color: #555;
+  }
+
+  .activity-name, .nav-link.card-title.disabled {
+    color: #000;
+    font-weight: bold;
+    cursor: default;
+  }
+
+  /* Adapting bootstrap 4-beta theme slightly */
+  .btn-secondary {
+    color: #000;
+    background-color: #eee;
+  }
+
+  label.btn {
+    margin-bottom: 0;
+    font-size: 8px;
+  }
+  label.btn span {
+    max-width: 90px;
+    overflow: hidden;
+  }
+  .activity-sources {
+    padding: 0;
+  }
+  .demo .activity-sources { font-size: 150%; }
+
+  .activity-stack {
+    font-size: 50%;
+    width: 100%;
+  }
+  .demo .activity-stack { font-size: 100%; }
+
+  .activity-stack label {
+    padding: 0.1rem .2rem;
+    overflow: hidden;
+  }
+  .activity-highlight {
+    background-color: #eee;
+  }
+  .activity-scopes {
+    width: 100%;
+    margin-top: 2ex;
+  }
+  .activity-scopes th, .activity-scopes td {
+    padding: 0.1rem .2rem;
+    font-size: 9px
+  }
+  .activity .nav-link {
+    font-size: 0.75em;
+    padding: 0.1em 0.1em;
+  }
+  .activity-sources .card-header-tabs {
+    margin-left: 0;
+  }
+  .activity-actions {
+    font-size: 75%;
+    padding-top: 3ex;
+  }
+  .activity-actions button {
+    padding:0.3em;
+    font-size: 75%;
+  }
+  .activity-pause {
+    font-family: 'FontAwesome';
+    font-size: 10px;
+  }
+  .activity-pause.running {
+    display: none;
+  }
+  .pane-opened .pane-closed {
+    display: none;
+  }
+  .pane-closed .pane-opened {
+    display: none;
+  }
+  .activity-source.pane-closed {
+    display: none;
+  }
+
+  .card-columns .card {
+    display: inline-block;
+  }
+
+  /* Used to make an invisible card that allows cards to wrap earlier */
+  .force-wrap-card, .card-columns .card.force-wrap-card {
+    border: 0;
+    margin-bottom: 0;
+  }
+
+  .system-status {
+    background-color:rgba(255, 255, 255, 0.5);
+    position: absolute;
+    top: 4ex;
+    right: 1ex;
+  }
+  .demo .system-status { top: 1ex; }
+
+  .activity-state {
+    margin:  0;
+    padding: 0;
+  }
+  .trace-entry {
+    width: 100%;
+    clear: both;
+  }
+  .trace-entry-no-source {
+    color: #999;
+    background-color: #dddddd;
+  }
+  .trace-location {
+    float:right;
+    font-size:60%;
+  }
+  .trace-method {
+    float:left;
+  }
+  .log-scroll {
+    overflow-y:scroll;
+    height:100px;
+    padding: 1rem;
+  }
+
+  .method-highlight {
+    background-color: #fdff47;
+  }
+  </style>
+</head>
+<body>
+<nav class="navbar-fixed-top" id="header">
+  <span style="font-weight: bold">Program</span> <code id="program-args"></code>
+</nav>
+<div id="system-view">
+  <div id="logo-bg">
+    <img src="out/src/logo/kompos-name.png" />
+    <img src="out/src/logo/tangled-string.png" />
+  </div>
+  <div id="graphs-canvas">
+    <div id="overview-canvas"></div>
+    <div id="protocol-canvas"></div>
+  </div>
+  <div id="split-system-code"></div>
+</div>
+
+<div id="code-views" class="card-columns"></div>
+
+<div class="card system-status" data-spy="affix">
+<div id="debugger" class="card-body">
+<div class="btn-toolbar card-pane" role="toolbar" aria-label="Debugger Controls">
+  <div class="btn-group btn-group-xs" role="group" aria-label="Basic Controls">
+    <button id="dbg-connect-btn" type="button" class="btn btn-secondary btn-sm" onclick="ctrl.toggleConnection();">Connecting</button>
+  </div>
+  <div class="btn-group btn-group-xs" role="group" aria-label="Demo Mode" style="float: right;margin-left: 40%;font-size:45%">
+    <input type="checkbox" id="demo-checkbox" class="btn btn-secondary btn-sm" onclick="$('body').toggleClass('demo', this.checked);" /> demo
+  </div>
+</div>
+
+<table class="table" id="breakpoints" style="font-size: 75%;">
+<!--   <thead>
+  <tr><th>File</th><th>Line</th><th></th></tr>
+  </thead> -->
+  <tbody id="breakpoint-list">
+<!--   <tr>
+    <td>ShortName</td>
+    <td>nn</td>
+    <td><input type="checkbox" id="b-XX" value="on" checked="checked" onchange=""></td>
+  </tr> -->
+  </tbody>
+</table>
+
+<table class="table" style="font-size: 75%">
+<tbody id="frame-state">
+</tbody>
+</table>
+
+<table class="table" id="stacktrace" style="font-size: 75%">
+<tbody id="stack-frames">
+</tbody>
+</table>
+
+<div id="debugger-log" class="panel-footer log-scroll" style="font-size: 75%">
+</div>
+
+<!-- Unicode Icons: incompletely supported
+  &#9654; &#9205; &#9208; &#9209; &#11175; &#10556; &#11154;-->
+</div></div>
+
+<div id="templates">
+  <div id="activity-tpl" class="activity card container-fluid"><div class="row">
+      <div class="activity-sources col-9">
+        <ul class="activity-sources-list nav nav-tabs card-header-tabs">
+          <li class="nav-item"><a class="activity-name nav-link disabled card-title" href="#">Platform</a></li>
+        </ul>
+        <div class="activity-source tab-content"></div>
+      </div>
+
+      <div class="activity-state col-3">
+        <div class="activity-actions btn-toolbar" role="toolbar" aria-label="Debugger Controls">
+          <div class="debugger-button-groups"></div>
+          <div class="btn-group btn-group-xs activity-fold" role="group" aria-label="Stepping">
+            <button class="btn btn-secondary pane-closed"
+              onclick="ctrl.toggleCodePane(getAttribute('data-actid'));">
+              <span class="pane-opened">&#9660;</span><span class="pane-closed">&#9664;</span>
+            </button>
+          </div>
+        </div>
+        <div class="activity-stack list-group stack" data-toggle="buttons"></div>
+
+        <table class="activity-scopes"><tbody></tbody></table>
+      </div>
+  </div></div>
+
+  <!-- This allows the cards to wrap earlier to the next column. Makes UI nicer. -->
+  <div id="card-wrapper" class="card container-fluid force-wrap-card"></div>
+
+  <label id="stack-trace-elem-tpl" class="trace-entry list-group-item">
+    <span class="trace-method">
+      <span class="trace-method-name"></span>
+    </span>
+    <span class="trace-location"></span>
+  </label>
+
+  <li id="tab-list-entry" class="nav-item"><a class="nav-link" href="#tab-id" data-toggle="tab">Label</a></li>
+
+  <div id="file" class="tab-pane code-pane">
+    <div class="line-numbers"></div>
+    <div class="source-file"></div>
+  </div>
+
+  <table>
+  <tr id="breakpoint-tpl">
+    <td>ShortName</td>
+    <td>nn</td>
+    <td><input type="checkbox" id="b-XX" value="on" checked="checked" onchange=""></td>
+  </tr>
+  </table>
+
+  <table>
+  <tr id="scope-head-tpl">
+    <th scope="row">name</th><td></td>
+  </tr>
+  <tr id="frame-state-tpl">
+    <td>name</td>
+    <td>value</td>
+  </tr>
+  </table>
+
+  <div id="bp-menu" class="dropdown-content"></div>
+  <button id="bp-menu-btn" class="btn btn-secondary btn-sm btn-block bp-btn"></button>
+
+  <div id="debugger-button-icons">
+    <i id="icon-play"         class="fa fa-play"></i>
+    <i id="icon-pause"        class="fa fa-pause"></i>
+    <i id="icon-stop"         class="fa fa-stop"></i>
+    <i id="icon-arrow-down"   class="fa fa-share" style="transform: rotate(90deg);"></i>
+    <i id="icon-arrow-right"  class="fa fa-share"></i>
+    <i id="icon-arrow-left"   class="fa fa-reply" style="transform: scaleY(-1);"></i>
+    <i id="icon-msg-open"     class="fa fa-envelope-open"></i>
+    <i id="icon-msg-close"    class="fa fa-envelope"></i>
+    <i id="icon-msg-white"    class="fa fa-envelope-o"></i>
+    <i id="icon-msg-embedded" class="fa fa-envelope-square"></i>
+  </div>
+
+  <div id="debugger-step-btn-group"
+    class="btn-group btn-group-xs" role="group" aria-label="LABEL"></div>
+  <button id="debugger-step-btn"
+    class="act-resume btn btn-secondary btn-sm" type="button" disabled="disabled"
+    title="TITLE" data-actid="ACTID" data-step="STEPID"
+    onclick="ctrl.step(getAttribute('data-actid'), getAttribute('data-step'));">LABEL</button>
+</div>
+
+<!-- REM: https://github.com/earmbrust/bootstrap-window -->
+
+</body>
+</html>

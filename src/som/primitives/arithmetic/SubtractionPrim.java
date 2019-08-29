@@ -2,31 +2,31 @@ package som.primitives.arithmetic;
 
 import java.math.BigInteger;
 
-import com.oracle.truffle.api.ExactMath;
+import com.oracle.truffle.api.CompilerDirectives.TruffleBoundary;
 import com.oracle.truffle.api.dsl.GenerateNodeFactory;
 import com.oracle.truffle.api.dsl.Specialization;
-import com.oracle.truffle.api.source.SourceSection;
 
-import som.primitives.Primitive;
+import bd.primitives.Primitive;
 
 
 @GenerateNodeFactory
-@Primitive({"int:subtract:", "double:subtract:"})
+@Primitive(primitive = "int:subtract:")
+@Primitive(primitive = "double:subtract:")
+@Primitive(selector = "-")
 public abstract class SubtractionPrim extends ArithmeticPrim {
-  protected SubtractionPrim(final boolean eagWrap, final SourceSection source) { super(eagWrap, source); }
-  protected SubtractionPrim(final SourceSection source) { super(false, source); }
-
   @Specialization(rewriteOn = ArithmeticException.class)
   public final long doLong(final long left, final long right) {
-    return ExactMath.subtractExact(left, right);
+    return Math.subtractExact(left, right);
   }
 
   @Specialization
+  @TruffleBoundary
   public final BigInteger doLongWithOverflow(final long left, final long right) {
     return BigInteger.valueOf(left).subtract(BigInteger.valueOf(right));
   }
 
   @Specialization
+  @TruffleBoundary
   public final Object doBigInteger(final BigInteger left, final BigInteger right) {
     BigInteger result = left.subtract(right);
     return reduceToLongIfPossible(result);
@@ -38,6 +38,7 @@ public abstract class SubtractionPrim extends ArithmeticPrim {
   }
 
   @Specialization
+  @TruffleBoundary
   public final Object doLong(final long left, final BigInteger right) {
     return doBigInteger(BigInteger.valueOf(left), right);
   }
@@ -48,6 +49,7 @@ public abstract class SubtractionPrim extends ArithmeticPrim {
   }
 
   @Specialization
+  @TruffleBoundary
   public final Object doBigInteger(final BigInteger left, final long right) {
     return doBigInteger(left, BigInteger.valueOf(right));
   }

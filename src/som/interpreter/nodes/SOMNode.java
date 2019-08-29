@@ -24,26 +24,34 @@ package som.interpreter.nodes;
 import java.lang.reflect.Field;
 import java.util.Arrays;
 
+import com.oracle.truffle.api.CompilerDirectives.CompilationFinal;
+import com.oracle.truffle.api.TruffleOptions;
 import com.oracle.truffle.api.dsl.TypeSystemReference;
 import com.oracle.truffle.api.frame.FrameSlot;
-import com.oracle.truffle.api.instrumentation.InstrumentableFactory.WrapperNode;
+import com.oracle.truffle.api.instrumentation.InstrumentableNode.WrapperNode;
+import com.oracle.truffle.api.instrumentation.Tag;
 import com.oracle.truffle.api.nodes.Node;
 import com.oracle.truffle.api.source.SourceSection;
 
-import som.interpreter.InlinerAdaptToEmbeddedOuterContext;
-import som.interpreter.InlinerForLexicallyEmbeddedMethods;
-import som.interpreter.SplitterForLexicallyEmbeddedCode;
+import bd.inlining.ScopeAdaptationVisitor;
+import bd.inlining.nodes.ScopeReference;
+import bd.inlining.nodes.WithSource;
 import som.interpreter.Types;
+import tools.dym.Tags;
 
 
 @TypeSystemReference(Types.class)
-public abstract class SOMNode extends Node {
+public abstract class SOMNode extends Node implements ScopeReference, WithSource {
 
-  protected final SourceSection sourceSection;
+  @CompilationFinal protected SourceSection sourceSection;
 
-  public SOMNode(final SourceSection sourceSection) {
-    super();
+  @Override
+  @SuppressWarnings("unchecked")
+  public <T extends Node> T initialize(final SourceSection sourceSection) {
+    assert sourceSection != null;
+    assert this.sourceSection == null : "sourceSection should only be set once";
     this.sourceSection = sourceSection;
+    return (T) this;
   }
 
   @Override
@@ -52,14 +60,23 @@ public abstract class SOMNode extends Node {
   }
 
   /**
-   * This method is called by a visitor that adjusts a newly split copy of a
-   * block method to refer to the correct out lexical context, and for instance,
-   * to replace FrameSlot references by the correct and independent new outer
-   * lexical scope.
-   * @param inliner
+   * A work around for restrictions in Truffle's guard DSL.
    */
-  public void replaceWithIndependentCopyForInlining(
-      final SplitterForLexicallyEmbeddedCode inliner) {
+  public SOMNode getThis() {
+    return this;
+  }
+
+  /**
+   * This method is called by a visitor to adjust nodes that access lexical
+   * elements such as locals or arguments. This is necessary after changes in
+   * the scope tree. This can be caused by method splitting to obtain
+   * independent copies, or inlining of blocks to adjust context levels.
+   *
+   * <p>
+   * When such changes occurred, all blocks within that tree need to be adjusted.
+   */
+  @Override
+  public void replaceAfterScopeChange(final ScopeAdaptationVisitor inliner) {
     // do nothing!
     // only a small subset of nodes needs to implement this method.
     // Most notably, nodes using FrameSlots, and block nodes with method
@@ -82,6 +99,10 @@ public abstract class SOMNode extends Node {
   }
 
   private boolean assertNodeHasNoFrameSlots() {
+    if (TruffleOptions.AOT) {
+      return true;
+    }
+
     if (this.getClass().desiredAssertionStatus()) {
       for (Field f : getAllFields(getClass())) {
         assert f.getType() != FrameSlot.class;
@@ -92,45 +113,6 @@ public abstract class SOMNode extends Node {
     }
     return true;
   }
-
-  /**
-   * This method is called by a visitor that adjusts a copy of a block method
-   * to be embedded into its outer method/block. Thus, it needs to adjust
-   * frame slots, which are now moved up to the outer method, and also
-   * trigger adaptation of methods lexically embedded/included in this copy.
-   * The actual adaptation of those methods is done by
-   * replaceWithCopyAdaptedToEmbeddedOuterContext();
-   * @param inlinerForLexicallyEmbeddedMethods
-   */
-  public void replaceWithLexicallyEmbeddedNode(
-      final InlinerForLexicallyEmbeddedMethods inliner) {
-    // do nothing!
-    // only a small subset of nodes needs to implement this method.
-    // Most notably, nodes using FrameSlots, and block nodes with method
-    // nodes.
-    assert assertNodeHasNoFrameSlots();
-  }
-
-  /**
-   * Adapt a copy of a method that is lexically enclosed in a block that
-   * just got embedded into its outer context.
-   * Thus, all frame slots need to be fixed up, as well as all embedded
-   * blocks.
-   * @param inlinerAdaptToEmbeddedOuterContext
-   */
-  public void replaceWithCopyAdaptedToEmbeddedOuterContext(
-      final InlinerAdaptToEmbeddedOuterContext inliner) {
-    // do nothing!
-    // only a small subset of nodes needs to implement this method.
-    // Most notably, nodes using FrameSlots, and block nodes with method
-    // nodes.
-    assert assertNodeHasNoFrameSlots();
-  }
-
-  /**
-   * @return body of a node that just wraps the actual method body.
-   */
-  public abstract ExpressionNode getFirstMethodBodyNode();
 
   @SuppressWarnings("unchecked")
   public static <T extends Node> T unwrapIfNecessary(final T node) {
@@ -148,7 +130,11 @@ public abstract class SOMNode extends Node {
     if (parent instanceof WrapperNode) {
       return parent.getParent();
     } else {
-      return node;
+      return parent;
     }
+  }
+
+  public boolean hasTag(final Class<? extends Tag> tag) {
+    return tag == Tags.AnyNode.class;
   }
 }

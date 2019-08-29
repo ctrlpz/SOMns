@@ -7,8 +7,10 @@ import com.oracle.truffle.api.utilities.JSONHelper.JSONStringBuilder;
 
 import tools.dym.JsonSerializable;
 
+
 public class Counter implements JsonSerializable {
   protected final SourceSection source;
+
   private int invocationCount;
 
   public Counter(final SourceSection source) {
@@ -29,7 +31,7 @@ public class Counter implements JsonSerializable {
 
   @Override
   public String toString() {
-    return "Cnt[" + invocationCount + ", " + source.getIdentifier() + "]";
+    return "Cnt[" + invocationCount + "]";
   }
 
   @Override

@@ -2,25 +2,22 @@ package som.primitives.arrays;
 
 import java.util.Arrays;
 
+import com.oracle.truffle.api.dsl.GenerateNodeFactory;
+import com.oracle.truffle.api.dsl.NodeChild;
+import com.oracle.truffle.api.dsl.NodeChildren;
+import com.oracle.truffle.api.dsl.Specialization;
+
 import som.interpreter.SArguments;
 import som.interpreter.nodes.nary.ExprWithTagsNode;
 import som.vm.constants.Nil;
 import som.vmobjects.SArray;
 
-import com.oracle.truffle.api.dsl.NodeChild;
-import com.oracle.truffle.api.dsl.NodeChildren;
-import com.oracle.truffle.api.dsl.Specialization;
-import com.oracle.truffle.api.profiles.ValueProfile;
-import com.oracle.truffle.api.source.SourceSection;
 
-
+@GenerateNodeFactory
 @NodeChildren({
-  @NodeChild("somArray"),
-  @NodeChild("receiver")})
+    @NodeChild("somArray"),
+    @NodeChild("receiver")})
 public abstract class ToArgumentsArrayNode extends ExprWithTagsNode {
-  private final ValueProfile storageType = ValueProfile.createClassProfile();
-
-  public ToArgumentsArrayNode() { super((SourceSection) null); }
 
   public static final boolean isNull(final Object somArray) {
     return somArray == null;
@@ -39,7 +36,7 @@ public abstract class ToArgumentsArrayNode extends ExprWithTagsNode {
 
   @Specialization(guards = "somArray.isEmptyType()")
   public final Object[] doEmptyArray(final SArray somArray, final Object rcvr) {
-    Object[] result = new Object[somArray.getEmptyStorage(storageType) + 1];
+    Object[] result = new Object[somArray.getEmptyStorage() + 1];
     Arrays.fill(result, Nil.nilObject);
     result[SArguments.RCVR_IDX] = rcvr;
     return result;
@@ -56,19 +53,19 @@ public abstract class ToArgumentsArrayNode extends ExprWithTagsNode {
   public final Object[] doPartiallyEmptyArray(final SArray somArray,
       final Object rcvr) {
     return addRcvrToObjectArray(
-        rcvr, somArray.getPartiallyEmptyStorage(storageType).getStorage());
+        rcvr, somArray.getPartiallyEmptyStorage().getStorage());
   }
 
   @Specialization(guards = "somArray.isObjectType()")
   public final Object[] doObjectArray(final SArray somArray,
       final Object rcvr) {
-    return addRcvrToObjectArray(rcvr, somArray.getObjectStorage(storageType));
+    return addRcvrToObjectArray(rcvr, somArray.getObjectStorage());
   }
 
   @Specialization(guards = "somArray.isLongType()")
   public final Object[] doLongArray(final SArray somArray,
       final Object rcvr) {
-    long[] arr = somArray.getLongStorage(storageType);
+    long[] arr = somArray.getLongStorage();
     Object[] args = new Object[arr.length + 1];
     args[0] = rcvr;
     for (int i = 0; i < arr.length; i++) {
@@ -80,7 +77,7 @@ public abstract class ToArgumentsArrayNode extends ExprWithTagsNode {
   @Specialization(guards = "somArray.isDoubleType()")
   public final Object[] doDoubleArray(final SArray somArray,
       final Object rcvr) {
-    double[] arr = somArray.getDoubleStorage(storageType);
+    double[] arr = somArray.getDoubleStorage();
     Object[] args = new Object[arr.length + 1];
     args[0] = rcvr;
     for (int i = 0; i < arr.length; i++) {
@@ -92,7 +89,7 @@ public abstract class ToArgumentsArrayNode extends ExprWithTagsNode {
   @Specialization(guards = "somArray.isBooleanType()")
   public final Object[] doBooleanArray(final SArray somArray,
       final Object rcvr) {
-    boolean[] arr = somArray.getBooleanStorage(storageType);
+    boolean[] arr = somArray.getBooleanStorage();
     Object[] args = new Object[arr.length + 1];
     args[0] = rcvr;
     for (int i = 0; i < arr.length; i++) {

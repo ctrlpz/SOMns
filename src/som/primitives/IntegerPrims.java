@@ -2,11 +2,13 @@ package som.primitives;
 
 import java.math.BigInteger;
 
+import com.oracle.truffle.api.CompilerDirectives.TruffleBoundary;
 import com.oracle.truffle.api.dsl.GenerateNodeFactory;
 import com.oracle.truffle.api.dsl.Specialization;
+import com.oracle.truffle.api.instrumentation.Tag;
 import com.oracle.truffle.api.profiles.BranchProfile;
-import com.oracle.truffle.api.source.SourceSection;
 
+import bd.primitives.Primitive;
 import som.interpreter.nodes.nary.BinaryComplexOperation;
 import som.interpreter.nodes.nary.UnaryBasicOperation;
 import som.interpreter.nodes.nary.UnaryExpressionNode;
@@ -22,17 +24,15 @@ import tools.dym.Tags.StringAccess;
 public abstract class IntegerPrims {
 
   @GenerateNodeFactory
-  @Primitive("intAs32BitSignedValue:")
+  @Primitive(primitive = "intAs32BitSignedValue:",
+      selector = "as32BitSignedValue", receiverType = Long.class)
   public abstract static class As32BitSignedValue extends UnaryBasicOperation {
-    public As32BitSignedValue(final boolean eagWrap, final SourceSection source) { super(eagWrap, source); }
-    public As32BitSignedValue(final SourceSection source) { super(false, source); }
-
     @Override
-    protected boolean isTaggedWithIgnoringEagerness(final Class<?> tag) {
+    protected boolean hasTagIgnoringEagerness(final Class<? extends Tag> tag) {
       if (tag == OpArithmetic.class) {
         return true;
       } else {
-        return super.isTaggedWithIgnoringEagerness(tag);
+        return super.hasTagIgnoringEagerness(tag);
       }
     }
 
@@ -43,17 +43,15 @@ public abstract class IntegerPrims {
   }
 
   @GenerateNodeFactory
-  @Primitive("intAs32BitUnsignedValue:")
+  @Primitive(primitive = "intAs32BitUnsignedValue:",
+      selector = "as32BitUnsignedValue", receiverType = Long.class)
   public abstract static class As32BitUnsignedValue extends UnaryBasicOperation {
-    public As32BitUnsignedValue(final boolean eagWrap, final SourceSection source) { super(eagWrap, source); }
-    public As32BitUnsignedValue(final SourceSection source) { super(false, source); }
-
     @Override
-    protected boolean isTaggedWithIgnoringEagerness(final Class<?> tag) {
+    protected boolean hasTagIgnoringEagerness(final Class<? extends Tag> tag) {
       if (tag == OpArithmetic.class) {
         return true;
       } else {
-        return super.isTaggedWithIgnoringEagerness(tag);
+        return super.hasTagIgnoringEagerness(tag);
       }
     }
 
@@ -64,43 +62,40 @@ public abstract class IntegerPrims {
   }
 
   @GenerateNodeFactory
-  @Primitive("intFromString:")
+  @Primitive(primitive = "intFromString:")
   public abstract static class FromStringPrim extends UnaryExpressionNode {
-    public FromStringPrim(final SourceSection source) { super(false, source); }
-
     @Override
-    protected boolean isTaggedWithIgnoringEagerness(final Class<?> tag) {
+    protected boolean hasTagIgnoringEagerness(final Class<? extends Tag> tag) {
       if (tag == ComplexPrimitiveOperation.class) {
         return true;
       } else if (tag == StringAccess.class) {
         return true;
       } else {
-        return super.isTaggedWithIgnoringEagerness(tag);
+        return super.hasTagIgnoringEagerness(tag);
       }
     }
 
     @Specialization
+    @TruffleBoundary
     public final Object doSClass(final String argument) {
       return Long.parseLong(argument);
     }
 
     @Specialization
+    @TruffleBoundary
     public final Object doSClass(final SSymbol argument) {
       return Long.parseLong(argument.getString());
     }
   }
 
   @GenerateNodeFactory
-  @Primitive("int:leftShift:")
+  @Primitive(primitive = "int:leftShift:", selector = "<<", receiverType = Long.class)
   public abstract static class LeftShiftPrim extends ArithmeticPrim {
-    protected LeftShiftPrim(final boolean eagWrap, final SourceSection source) { super(eagWrap, source); }
-    protected LeftShiftPrim(final SourceSection source) { super(false, source); }
-
     private final BranchProfile overflow = BranchProfile.create();
 
     @Specialization(rewriteOn = ArithmeticException.class)
     public final long doLong(final long receiver, final long right) {
-      assert right >= 0;  // currently not defined for negative values of right
+      assert right >= 0; // currently not defined for negative values of right
 
       if (Long.SIZE - Long.numberOfLeadingZeros(receiver) + right > Long.SIZE - 1) {
         overflow.enter();
@@ -110,8 +105,9 @@ public abstract class IntegerPrims {
     }
 
     @Specialization
+    @TruffleBoundary
     public final Number doLongWithOverflow(final long receiver, final long right) {
-      assert right >= 0;  // currently not defined for negative values of right
+      assert right >= 0; // currently not defined for negative values of right
       assert right <= Integer.MAX_VALUE;
 
       return reduceToLongIfPossible(
@@ -120,31 +116,27 @@ public abstract class IntegerPrims {
   }
 
   @GenerateNodeFactory
-  @Primitive("int:unsignedRightShift:")
+  @Primitive(primitive = "int:unsignedRightShift:", selector = ">>>",
+      receiverType = Long.class)
   public abstract static class UnsignedRightShiftPrim extends ArithmeticPrim {
-    protected UnsignedRightShiftPrim(final boolean eagWrap, final SourceSection source) { super(eagWrap, source); }
-    protected UnsignedRightShiftPrim(final SourceSection source) { super(false, source); }
-
     @Specialization
     public final long doLong(final long receiver, final long right) {
       return receiver >>> right;
     }
   }
 
+  @GenerateNodeFactory
+  @Primitive(selector = "max:", receiverType = Long.class, disabled = true)
   public abstract static class MaxIntPrim extends ArithmeticPrim {
-    protected MaxIntPrim(final boolean eagWrap, final SourceSection source) { super(eagWrap, source); }
-    protected MaxIntPrim(final SourceSection source) { super(false, source); }
-
     @Specialization
     public final long doLong(final long receiver, final long right) {
       return Math.max(receiver, right);
     }
   }
 
+  @GenerateNodeFactory
+  @Primitive(selector = "to:", receiverType = Long.class, disabled = true)
   public abstract static class ToPrim extends BinaryComplexOperation {
-    protected ToPrim(final boolean eagWrap, final SourceSection source) { super(eagWrap, source); }
-    protected ToPrim(final SourceSection source) { super(false, source); }
-
     @Specialization
     public final SMutableArray doLong(final long receiver, final long right) {
       int cnt = (int) right - (int) receiver + 1;
@@ -156,16 +148,15 @@ public abstract class IntegerPrims {
     }
   }
 
+  @GenerateNodeFactory
+  @Primitive(selector = "abs", receiverType = Long.class)
   public abstract static class AbsPrim extends UnaryBasicOperation {
-    public AbsPrim(final boolean eagWrap, final SourceSection source) { super(eagWrap, source); }
-    public AbsPrim(final SourceSection source) { super(false, source); }
-
     @Override
-    protected boolean isTaggedWithIgnoringEagerness(final Class<?> tag) {
+    protected boolean hasTagIgnoringEagerness(final Class<? extends Tag> tag) {
       if (tag == OpArithmetic.class) {
         return true;
       } else {
-        return super.isTaggedWithIgnoringEagerness(tag);
+        return super.hasTagIgnoringEagerness(tag);
       }
     }
 

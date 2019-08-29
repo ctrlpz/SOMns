@@ -2,36 +2,44 @@ package som.primitives.arithmetic;
 
 import java.math.BigInteger;
 
+import com.oracle.truffle.api.CompilerDirectives.TruffleBoundary;
 import com.oracle.truffle.api.dsl.GenerateNodeFactory;
 import com.oracle.truffle.api.dsl.Specialization;
-import com.oracle.truffle.api.source.SourceSection;
 
-import som.primitives.Primitive;
+import bd.primitives.Primitive;
 
 
 @GenerateNodeFactory
-@Primitive("int:divideBy:")
+@Primitive(primitive = "int:divideBy:", selector = "/")
 public abstract class DividePrim extends ArithmeticPrim {
-  protected DividePrim(final boolean eagWrap, final SourceSection source) { super(eagWrap, source); }
-  protected DividePrim(final SourceSection source) { super(false, source); }
+  private static final BigInteger OVERFLOW_RESULT =
+      BigInteger.valueOf(Long.MIN_VALUE).divide(BigInteger.valueOf(-1));
 
-  @Specialization
+  @Specialization(guards = "!isOverflowDivision(left, right)")
   public final long doLong(final long left, final long right) {
     return left / right;
   }
 
+  @Specialization(guards = "isOverflowDivision(left, right)")
+  public final Object doLongWithOverflow(final long left, final long right) {
+    return OVERFLOW_RESULT;
+  }
+
   @Specialization
+  @TruffleBoundary
   public final Object doBigInteger(final BigInteger left, final BigInteger right) {
     BigInteger result = left.divide(right);
     return reduceToLongIfPossible(result);
   }
 
   @Specialization
+  @TruffleBoundary
   public final Object doBigInteger(final BigInteger left, final long right) {
     return doBigInteger(left, BigInteger.valueOf(right));
   }
 
   @Specialization
+  @TruffleBoundary
   public final Object doLong(final long left, final BigInteger right) {
     return doBigInteger(BigInteger.valueOf(left), right);
   }
@@ -39,5 +47,9 @@ public abstract class DividePrim extends ArithmeticPrim {
   @Specialization
   public final Object doLong(final long left, final double right) {
     return (long) (left / right);
+  }
+
+  protected static final boolean isOverflowDivision(final long left, final long right) {
+    return left == Long.MIN_VALUE && right == -1;
   }
 }

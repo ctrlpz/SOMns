@@ -26,6 +26,17 @@
 package som.vmobjects;
 
 import static som.interpreter.TruffleCompiler.transferToInterpreterAndInvalidate;
+
+import java.nio.file.Path;
+import java.nio.file.Paths;
+
+import com.oracle.truffle.api.CallTarget;
+import com.oracle.truffle.api.CompilerDirectives.CompilationFinal;
+import com.oracle.truffle.api.CompilerDirectives.TruffleBoundary;
+import com.oracle.truffle.api.RootCallTarget;
+import com.oracle.truffle.api.nodes.IndirectCallNode;
+import com.oracle.truffle.api.source.SourceSection;
+
 import som.compiler.AccessModifier;
 import som.compiler.MixinDefinition;
 import som.interpreter.Invokable;
@@ -34,43 +45,39 @@ import som.interpreter.nodes.dispatch.CachedDispatchNode;
 import som.interpreter.nodes.dispatch.DispatchGuard;
 import som.interpreter.nodes.dispatch.Dispatchable;
 import som.interpreter.nodes.dispatch.LexicallyBoundDispatchNode;
+import som.vm.Symbols;
+import som.vm.VmSettings;
 import som.vm.constants.Classes;
 
-import com.oracle.truffle.api.CompilerDirectives.CompilationFinal;
-import com.oracle.truffle.api.RootCallTarget;
-import com.oracle.truffle.api.frame.VirtualFrame;
-import com.oracle.truffle.api.nodes.IndirectCallNode;
-import com.oracle.truffle.api.source.SourceSection;
 
 public class SInvokable extends SAbstractObject implements Dispatchable {
 
-  private final AccessModifier     accessModifier;
-  private final SSymbol            category;
-  private final Invokable          invokable;
-  private final RootCallTarget     callTarget;
-  private final SSymbol            signature;
-  private final SInvokable[]       embeddedBlocks;
+  private final AccessModifier accessModifier;
+  private final Invokable      invokable;
+  private final RootCallTarget callTarget;
+  private final SSymbol        signature;
+  private final SInvokable[]   embeddedBlocks;
 
   @CompilationFinal private MixinDefinition holder;
+  @CompilationFinal private RootCallTarget  atomicCallTarget;
 
   public SInvokable(final SSymbol signature,
-      final AccessModifier accessModifier, final SSymbol category,
+      final AccessModifier accessModifier,
       final Invokable invokable, final SInvokable[] embeddedBlocks) {
     this.signature = signature;
     this.accessModifier = accessModifier;
-    this.category = category;
 
-    this.invokable   = invokable;
-    this.callTarget  = invokable.createCallTarget();
+    this.invokable = invokable;
+    this.callTarget = invokable.createCallTarget();
     this.embeddedBlocks = embeddedBlocks;
   }
 
   public static class SInitializer extends SInvokable {
 
     public SInitializer(final SSymbol signature,
-        final AccessModifier accessModifier, final SSymbol category,
+        final AccessModifier accessModifier,
         final Invokable invokable, final SInvokable[] embeddedBlocks) {
-      super(signature, accessModifier, category, invokable, embeddedBlocks);
+      super(signature, accessModifier, invokable, embeddedBlocks);
     }
 
     @Override
@@ -103,6 +110,19 @@ public class SInvokable extends SAbstractObject implements Dispatchable {
     return callTarget;
   }
 
+  @TruffleBoundary
+  public final RootCallTarget getAtomicCallTarget() {
+    if (atomicCallTarget == null) {
+      synchronized (this) {
+        if (atomicCallTarget == null) {
+          Invokable atomicIvk = invokable.createAtomic();
+          atomicCallTarget = atomicIvk.createCallTarget();
+        }
+      }
+    }
+    return atomicCallTarget;
+  }
+
   public final Invokable getInvokable() {
     return invokable;
   }
@@ -112,10 +132,20 @@ public class SInvokable extends SAbstractObject implements Dispatchable {
   }
 
   public final MixinDefinition getHolder() {
+    assert holder != null;
+    return holder;
+  }
+
+  /**
+   * This method is meant for the language server,
+   * it doesn't check whether the holder is set.
+   */
+  public final MixinDefinition getHolderUnsafe() {
     return holder;
   }
 
   public final void setHolder(final MixinDefinition value) {
+    assert value != null;
     transferToInterpreterAndInvalidate("SMethod.setHolder");
     holder = value;
   }
@@ -124,13 +154,13 @@ public class SInvokable extends SAbstractObject implements Dispatchable {
     return getSignature().getNumberOfSignatureArguments();
   }
 
-  public final Object invoke(final Object... arguments) {
+  public final Object invoke(final Object[] arguments) {
     return callTarget.call(arguments);
   }
 
   @Override
-  public final Object invoke(final IndirectCallNode node, final VirtualFrame frame, final Object... arguments) {
-    return node.call(frame, callTarget, arguments);
+  public final Object invoke(final IndirectCallNode node, final Object[] arguments) {
+    return node.call(callTarget, arguments);
   }
 
   @Override
@@ -139,16 +169,13 @@ public class SInvokable extends SAbstractObject implements Dispatchable {
       return "Method(nil>>" + getSignature().toString() + ")";
     }
 
-    return "Method(" + getHolder().getName().getString() + ">>" + getSignature().toString() + ")";
+    return "Method(" + getHolder().getName().getString() + ">>" + getSignature().toString()
+        + ")";
   }
 
   @Override
   public final AccessModifier getAccessModifier() {
     return accessModifier;
-  }
-
-  public final SSymbol getCategory() {
-    return category;
   }
 
   public final SourceSection getSourceSection() {
@@ -157,19 +184,38 @@ public class SInvokable extends SAbstractObject implements Dispatchable {
 
   @Override
   public final AbstractDispatchNode getDispatchNode(final Object rcvr,
-      final Object firstArg, final AbstractDispatchNode next) {
+      final Object firstArg, final AbstractDispatchNode next, final boolean forAtomic) {
     assert next != null : "Pass the old node, just need the source section";
+
+    CallTarget ct = forAtomic ? getAtomicCallTarget() : callTarget;
+
     // In case it's a private method, it is directly linked and doesn't need guards
     if (accessModifier == AccessModifier.PRIVATE) {
-      return new LexicallyBoundDispatchNode(next.getSourceSection(), callTarget);
+      return new LexicallyBoundDispatchNode(next.getSourceSection(), ct);
     }
 
     DispatchGuard guard = DispatchGuard.create(rcvr);
-    return new CachedDispatchNode(callTarget, guard, next);
+    return new CachedDispatchNode(ct, guard, next);
   }
 
   @Override
   public final String typeForErrors() {
     return "method";
+  }
+
+  public SSymbol getIdentifier() {
+    if (holder != null) {
+      return Symbols.symbolFor(
+          holder.getIdentifier().getString() + "." + signature.getString());
+    } else if (invokable.getSourceSection() != null) {
+      // TODO find a better solution than charIndex
+      Path absolute = Paths.get(invokable.getSourceSection().getSource().getURI());
+      Path relative =
+          Paths.get(VmSettings.BASE_DIRECTORY).toAbsolutePath().relativize(absolute);
+      return Symbols.symbolFor(relative.toString() + ":"
+          + invokable.getSourceSection().getCharIndex() + ":" + signature.getString());
+    } else {
+      return signature;
+    }
   }
 }

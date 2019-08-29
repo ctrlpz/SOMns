@@ -8,23 +8,22 @@ import java.util.Set;
 
 import com.oracle.truffle.api.CompilerDirectives.TruffleBoundary;
 import com.oracle.truffle.api.source.SourceSection;
-import com.sun.istack.internal.NotNull;
 
 
 public final class OperationProfile extends Counter {
 
-  private final String operation;
-  private final Set<Class<?>> tags;
-  private final Deque<Object[]> argumentsForExecutions;
-  protected final int numSubexpressions;
+  private final String                    operation;
+  private final Set<Class<?>>             tags;
+  private final Deque<Object[]>           argumentsForExecutions;
+  protected final int                     numArgsAndResult;
   protected final Map<Arguments, Integer> argumentTypes;
 
-  public OperationProfile(final SourceSection source,
-      @NotNull final String operation, final Set<Class<?>> tags, final int numSubexpressions) {
+  public OperationProfile(final SourceSection source, final String operation,
+      final Set<Class<?>> tags, final int numArgsAndResult) {
     super(source);
-    this.numSubexpressions = numSubexpressions;
-    this.operation         = operation;
-    this.tags              = tags;
+    this.numArgsAndResult = numArgsAndResult;
+    this.operation = operation;
+    this.tags = tags;
     argumentsForExecutions = new ArrayDeque<>();
     argumentTypes = new HashMap<>();
     assert operation != null;
@@ -35,9 +34,9 @@ public final class OperationProfile extends Counter {
         new Arguments(args), 1, Integer::sum);
   }
 
+  @TruffleBoundary
   public void enterMainNode() {
-    inc();
-    argumentsForExecutions.push(new Object[numSubexpressions]);
+    argumentsForExecutions.push(new Object[numArgsAndResult]);
   }
 
   public String getOperation() {
@@ -46,6 +45,10 @@ public final class OperationProfile extends Counter {
 
   public Set<Class<?>> getTags() {
     return tags;
+  }
+
+  public int getNumArgsAndResult() {
+    return numArgsAndResult;
   }
 
   public Map<Arguments, Integer> getArgumentTypes() {

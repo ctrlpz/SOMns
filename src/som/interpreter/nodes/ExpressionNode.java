@@ -24,9 +24,11 @@ package som.interpreter.nodes;
 import java.math.BigInteger;
 
 import com.oracle.truffle.api.frame.VirtualFrame;
-import com.oracle.truffle.api.instrumentation.Instrumentable;
+import com.oracle.truffle.api.instrumentation.GenerateWrapper;
+import com.oracle.truffle.api.instrumentation.InstrumentableNode;
+import com.oracle.truffle.api.instrumentation.ProbeNode;
+import com.oracle.truffle.api.nodes.Node;
 import com.oracle.truffle.api.nodes.UnexpectedResultException;
-import com.oracle.truffle.api.source.SourceSection;
 
 import som.interpreter.TypesGen;
 import som.interpreter.actors.SFarReference;
@@ -40,34 +42,42 @@ import som.vmobjects.SObject;
 import som.vmobjects.SSymbol;
 
 
-@Instrumentable(factory = ExpressionNodeWrapper.class)
-public abstract class ExpressionNode extends SOMNode {
+@GenerateWrapper
+public abstract class ExpressionNode extends SOMNode implements InstrumentableNode {
 
-  public ExpressionNode(final SourceSection sourceSection) {
-    super(sourceSection);
+  protected ExpressionNode() {}
+
+  protected ExpressionNode(final ExpressionNode wrapped) {}
+
+  public void markAsRootExpression() {
+    throw new UnsupportedOperationException();
   }
 
-  /**
-   * Use for wrapping node only.
-   */
-  protected ExpressionNode(final ExpressionNode wrappedNode) {
-    super(null);
+  public boolean isMarkedAsRootExpression() {
+    throw new UnsupportedOperationException();
   }
 
-  public void markAsRootExpression() { throw new UnsupportedOperationException(); }
+  public void markAsLoopBody() {
+    throw new UnsupportedOperationException();
+  }
 
-  public void markAsLoopBody()  { throw new UnsupportedOperationException(); }
+  public void markAsControlFlowCondition() {
+    throw new UnsupportedOperationException();
+  }
 
-  public void markAsControlFlowCondition()  { throw new UnsupportedOperationException(); }
+  public void markAsArgument() {
+    throw new UnsupportedOperationException();
+  }
 
-  public void markAsPrimitiveArgument()  { throw new UnsupportedOperationException(); }
+  public void markAsVirtualInvokeReceiver() {
+    throw new UnsupportedOperationException();
+  }
 
-  public void markAsVirtualInvokeReceiver()  { throw new UnsupportedOperationException(); }
+  public void markAsStatement() {
+    throw new UnsupportedOperationException();
+  }
 
-  public abstract Object executeGeneric(final VirtualFrame frame);
-
-  @Override
-  public ExpressionNode getFirstMethodBodyNode() { return this; }
+  public abstract Object executeGeneric(VirtualFrame frame);
 
   public boolean executeBoolean(final VirtualFrame frame) throws UnexpectedResultException {
     return TypesGen.expectBoolean(executeGeneric(frame));
@@ -77,7 +87,8 @@ public abstract class ExpressionNode extends SOMNode {
     return TypesGen.expectLong(executeGeneric(frame));
   }
 
-  public BigInteger executeBigInteger(final VirtualFrame frame) throws UnexpectedResultException {
+  public BigInteger executeBigInteger(final VirtualFrame frame)
+      throws UnexpectedResultException {
     return TypesGen.expectBigInteger(executeGeneric(frame));
   }
 
@@ -101,7 +112,8 @@ public abstract class ExpressionNode extends SOMNode {
     return TypesGen.expectSClass(executeGeneric(frame));
   }
 
-  public SInvokable executeSInvokable(final VirtualFrame frame) throws UnexpectedResultException {
+  public SInvokable executeSInvokable(final VirtualFrame frame)
+      throws UnexpectedResultException {
     return TypesGen.expectSInvokable(executeGeneric(frame));
   }
 
@@ -113,15 +125,18 @@ public abstract class ExpressionNode extends SOMNode {
     return TypesGen.expectSArray(executeGeneric(frame));
   }
 
-  public SAbstractObject executeSAbstractObject(final VirtualFrame frame) throws UnexpectedResultException {
+  public SAbstractObject executeSAbstractObject(final VirtualFrame frame)
+      throws UnexpectedResultException {
     return TypesGen.expectSAbstractObject(executeGeneric(frame));
   }
 
-  public Object[] executeObjectArray(final VirtualFrame frame) throws UnexpectedResultException {
+  public Object[] executeObjectArray(final VirtualFrame frame)
+      throws UnexpectedResultException {
     return TypesGen.expectObjectArray(executeGeneric(frame));
   }
 
-  public SFarReference executeSFarReference(final VirtualFrame frame) throws UnexpectedResultException {
+  public SFarReference executeSFarReference(final VirtualFrame frame)
+      throws UnexpectedResultException {
     return TypesGen.expectSFarReference(executeGeneric(frame));
   }
 
@@ -130,6 +145,27 @@ public abstract class ExpressionNode extends SOMNode {
   }
 
   public boolean isResultUsed(final ExpressionNode child) {
+    if (this instanceof WrapperNode) {
+      Node p = getParent();
+      if (p instanceof ExpressionNode) {
+        return ((ExpressionNode) p).isResultUsed(child);
+      }
+    }
     return true;
+  }
+
+  @Override
+  public boolean isInstrumentable() {
+    return true;
+  }
+
+  @Override
+  public WrapperNode createWrapper(final ProbeNode probe) {
+    return new ExpressionNodeWrapper(this, probe);
+  }
+
+  @Override
+  public String toString() {
+    return getClass().getSimpleName() + "(" + String.valueOf(sourceSection) + ")";
   }
 }

@@ -1,14 +1,14 @@
 package som.interpreter.nodes.specialized;
 
-import som.interpreter.nodes.ExpressionNode;
-import som.interpreter.nodes.nary.ExprWithTagsNode;
-
 import com.oracle.truffle.api.dsl.UnsupportedSpecializationException;
 import com.oracle.truffle.api.frame.VirtualFrame;
 import com.oracle.truffle.api.nodes.Node;
 import com.oracle.truffle.api.nodes.UnexpectedResultException;
 import com.oracle.truffle.api.profiles.ConditionProfile;
-import com.oracle.truffle.api.source.SourceSection;
+
+import bd.inlining.Inline;
+import som.interpreter.nodes.ExpressionNode;
+import som.interpreter.nodes.nary.ExprWithTagsNode;
 
 
 /**
@@ -18,6 +18,7 @@ import com.oracle.truffle.api.source.SourceSection;
  * Note, it is also applicable if one of the argument expressions is a proper
  * literal of some sort.
  */
+@Inline(selector = "ifTrue:ifFalse:", inlineableArgIdx = {1, 2})
 public final class IfTrueIfFalseInlinedLiteralsNode extends ExprWithTagsNode {
   private final ConditionProfile condProf = ConditionProfile.createCountingProfile();
 
@@ -30,19 +31,16 @@ public final class IfTrueIfFalseInlinedLiteralsNode extends ExprWithTagsNode {
   @SuppressWarnings("unused") private final ExpressionNode trueActualNode;
   @SuppressWarnings("unused") private final ExpressionNode falseActualNode;
 
-  public IfTrueIfFalseInlinedLiteralsNode(
-      final ExpressionNode conditionNode,
-      final ExpressionNode inlinedTrueNode,
-      final ExpressionNode inlinedFalseNode,
-      final ExpressionNode originalTrueNode,
-      final ExpressionNode originalFalseNode,
-      final SourceSection sourceSection) {
-    super(sourceSection);
-    this.conditionNode   = conditionNode;
-    this.trueNode        = inlinedTrueNode;
-    this.falseNode       = inlinedFalseNode;
-    this.trueActualNode  = originalTrueNode;
+  public IfTrueIfFalseInlinedLiteralsNode(final ExpressionNode conditionNode,
+      final ExpressionNode originalTrueNode, final ExpressionNode originalFalseNode,
+      final ExpressionNode inlinedTrueNode, final ExpressionNode inlinedFalseNode) {
+    this.conditionNode = conditionNode;
+    this.trueNode = inlinedTrueNode;
+    this.falseNode = inlinedFalseNode;
+    this.trueActualNode = originalTrueNode;
     this.falseActualNode = originalFalseNode;
+
+    conditionNode.markAsControlFlowCondition();
   }
 
   private boolean evaluateCondition(final VirtualFrame frame) {

@@ -3,70 +3,53 @@ package som.interpreter.nodes.nary;
 import com.oracle.truffle.api.CompilerDirectives.CompilationFinal;
 import com.oracle.truffle.api.dsl.NodeChild;
 import com.oracle.truffle.api.frame.VirtualFrame;
-import com.oracle.truffle.api.instrumentation.Instrumentable;
-import com.oracle.truffle.api.instrumentation.InstrumentableFactory.WrapperNode;
-import com.oracle.truffle.api.nodes.Node;
-import com.oracle.truffle.api.source.SourceSection;
+import com.oracle.truffle.api.instrumentation.GenerateWrapper;
+import com.oracle.truffle.api.instrumentation.ProbeNode;
 
+import bd.primitives.nodes.WithContext;
+import som.VM;
 import som.interpreter.nodes.ExpressionNode;
-import som.interpreter.nodes.PreevaluatedExpression;
+import som.vmobjects.SSymbol;
 
 
-@Instrumentable(factory = UnaryExpressionNodeWrapper.class)
+@GenerateWrapper
 @NodeChild(value = "receiver", type = ExpressionNode.class)
-public abstract class UnaryExpressionNode extends ExprWithTagsNode
-    implements PreevaluatedExpression {
+public abstract class UnaryExpressionNode extends EagerlySpecializableNode {
 
-  @CompilationFinal private boolean eagerlyWrapped;
+  protected UnaryExpressionNode() {}
 
-  public UnaryExpressionNode(final boolean eagerlyWrapped,
-      final SourceSection source) {
-    super(source);
-    this.eagerlyWrapped = eagerlyWrapped;
-  }
+  protected UnaryExpressionNode(final UnaryExpressionNode wrappedNode) {}
 
-  /**
-   * For use by wrapper nodes only.
-   */
-  protected UnaryExpressionNode(final UnaryExpressionNode wrappedNode) {
-    super(wrappedNode);
-    assert !wrappedNode.eagerlyWrapped : "I think this should be true.";
-    this.eagerlyWrapped = false;
-  }
-
-  /**
-   * This method is used by eager wrapper or if this node is not eagerly
-   * wrapped.
-   */
-  protected boolean isTaggedWithIgnoringEagerness(final Class<?> tag) {
-    return super.isTaggedWith(tag);
-  }
+  public abstract Object executeEvaluated(VirtualFrame frame, Object receiver);
 
   @Override
-  protected final boolean isTaggedWith(final Class<?> tag) {
-    if (eagerlyWrapped) {
-      return false;
-    } else {
-      return isTaggedWithIgnoringEagerness(tag);
-    }
+  public WrapperNode createWrapper(final ProbeNode probe) {
+    return new UnaryExpressionNodeWrapper(this, probe);
   }
-
-  @Override
-  protected void onReplace(final Node newNode, final CharSequence reason) {
-    if (newNode instanceof WrapperNode ||
-        !(newNode instanceof UnaryExpressionNode)) { return; }
-
-    UnaryExpressionNode n = (UnaryExpressionNode) newNode;
-    n.eagerlyWrapped = eagerlyWrapped;
-    super.onReplace(newNode, reason);
-  }
-
-  public abstract Object executeEvaluated(final VirtualFrame frame,
-      final Object receiver);
 
   @Override
   public final Object doPreEvaluated(final VirtualFrame frame,
       final Object[] arguments) {
     return executeEvaluated(frame, arguments[0]);
+  }
+
+  @Override
+  public EagerPrimitiveNode wrapInEagerWrapper(final SSymbol selector,
+      final ExpressionNode[] arguments, final VM vm) {
+    EagerUnaryPrimitiveNode result = new EagerUnaryPrimitiveNode(selector, arguments[0], this);
+    result.initialize(sourceSection);
+    return result;
+  }
+
+  public abstract static class UnarySystemOperation extends UnaryExpressionNode
+      implements WithContext<UnarySystemOperation, VM> {
+    @CompilationFinal protected VM vm;
+
+    @Override
+    public UnarySystemOperation initialize(final VM vm) {
+      assert this.vm == null && vm != null;
+      this.vm = vm;
+      return this;
+    }
   }
 }

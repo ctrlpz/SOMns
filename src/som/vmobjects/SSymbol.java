@@ -24,15 +24,33 @@
 
 package som.vmobjects;
 
+import java.util.concurrent.atomic.AtomicInteger;
+
+import som.vm.VmSettings;
 import som.vm.constants.Classes;
+import tools.concurrency.TracingBackend;
+import tools.snapshot.SnapshotBackend;
+
 
 public final class SSymbol extends SAbstractObject {
-  private final String string;
-  private final int    numberOfSignatureArguments;
+  private final String         string;
+  private final int            numberOfSignatureArguments;
+  private final short          symbolId;
+  private static AtomicInteger idGenerator = new AtomicInteger(0);
 
   public SSymbol(final String value) {
     string = value;
     numberOfSignatureArguments = determineNumberOfSignatureArguments();
+    if (VmSettings.KOMPOS_TRACING || VmSettings.ACTOR_TRACING
+        || VmSettings.TRACK_SNAPSHOT_ENTITIES) {
+      symbolId = (short) idGenerator.getAndIncrement();
+      TracingBackend.logSymbol(this);
+      if (VmSettings.TRACK_SNAPSHOT_ENTITIES) {
+        SnapshotBackend.registerSymbol(this);
+      }
+    } else {
+      symbolId = 0;
+    }
   }
 
   @Override
@@ -51,6 +69,10 @@ public final class SSymbol extends SAbstractObject {
     return string;
   }
 
+  public short getSymbolId() {
+    return symbolId;
+  }
+
   private int determineNumberOfSignatureArguments() {
     // Check for binary signature
     if (isBinarySignature()) {
@@ -61,7 +83,9 @@ public final class SSymbol extends SAbstractObject {
 
       // Iterate through every character in the signature string
       for (char c : string.toCharArray()) {
-        if (c == ':') { numberOfColons++; }
+        if (c == ':') {
+          numberOfColons++;
+        }
       }
 
       // The number of arguments is equal to the number of colons plus one
@@ -74,6 +98,9 @@ public final class SSymbol extends SAbstractObject {
     return "#" + string;
   }
 
+  /**
+   * @return number of arguments, including receiver
+   */
   public int getNumberOfSignatureArguments() {
     return numberOfSignatureArguments;
   }
@@ -83,7 +110,9 @@ public final class SSymbol extends SAbstractObject {
     for (char c : string.toCharArray()) {
       if (c != '~' && c != '&' && c != '|' && c != '*' && c != '/' && c != '@'
           && c != '+' && c != '-' && c != '=' && c != '>' && c != '<'
-          && c != ',' && c != '%' && c != '\\') { return false; }
+          && c != ',' && c != '%' && c != '\\') {
+        return false;
+      }
     }
     return true;
   }

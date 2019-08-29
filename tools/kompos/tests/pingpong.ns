@@ -1,0 +1,132 @@
+class PingPong usingPlatform: platform = Value (
+| private actors = platform actors.
+  private system = platform system.
+  private Exception = platform kernel Exception.
+|)(
+  public class PingPong new: numPings = Value (
+  | private NumPings = numPings.
+  |
+  )(
+    class Ping new: cnt with: pong = (
+      | private pingsLeft ::= cnt.
+        private pong = pong.
+      |
+    ) (
+      public start = (
+        'Ping>>start' println.
+        ping
+      )
+
+      public ping = (
+      | p1 p2 |
+        'Ping>>ping' println.
+        pong <-: ping: self.
+        pingsLeft:: pingsLeft - 1.
+
+        p1:: self <-: validate: pingsLeft.
+        p2:: p1 whenResolved: [:v | v println. ].
+        p2 <-: println.
+      )
+
+      public validate: pings = (
+      | p3 p4 |
+        p3:: self <-: validNumber: pings.
+        p4:: p3 whenResolved: [:v | ('-Resolved: ' + v) println. ] onError: [:e| ('-Error: ' + e) println ].
+        p4 <-: println.
+        ^ p4
+       )
+
+      public validNumber: pings = (
+      | p5 r |
+        p5:: actors createPromisePair.
+        r:: p5 resolver.
+        (pings = 2)
+        ifTrue: [
+          (' ping last value ' + pings) println.
+          kernel Exception signal.
+        ]
+        ifFalse: [
+          r resolve: ' ping value ' + pings.
+          p5 promise <-: println.
+        ].
+        ^ p5 promise
+      )
+
+      public pong: sender = (
+        'Ping>>pong' println.
+        pingsLeft > 0
+          ifTrue:  [ self <-: ping ]
+          ifFalse: [ pong <-: stop ].
+      )
+    )
+
+    class Pong new: completionRes = (
+    | private pongCount ::= 0.
+      private completionRes = completionRes.
+    |
+    ) (
+      public ping: sender = (
+        'Pong>>ping' println.
+        sender <-: pong: self.
+        pongCount:: pongCount + 1.
+      )
+
+      public stop = (
+      | p6 p7 |
+        'Pong>>stop' println.
+         p6:: self <-: endWithException.
+         p7:: p6 onError: [:e| ('-Error stopping: ' + e) println. ].
+         p7 <-: println.
+         completionRes resolve: pongCount
+      )
+
+      public endWithException = (
+        'create another exception' println.
+        kernel Exception signal.
+        ^ 0
+      )
+    )
+
+    public benchmark = (
+      | ping pong completionPP p |
+      completionPP:: actors createPromisePair.
+      pong:: (actors createActorFromValue: Pong) <-: new: completionPP resolver.
+      ping:: (actors createActorFromValue: Ping) <-: new: NumPings with: pong.
+      p:: ping <-: start.
+      p <-: println.
+      ^ completionPP promise whenResolved: [:r |
+         ('Done with: ' + r asString) println. ]
+    )
+  ) : (
+    public newInstance: problemSize = ( ^ self new: problemSize asInteger )
+    public setupVerifiedRun: run = ( run problemSize: 1 )
+  )
+
+  private testHalt = (
+    1 halt.
+    ^ 0
+  )
+
+  private testDNU = (
+    1 foobar.
+    ^ 0
+  )
+
+  private testPrintStackTrace = (
+    system printStackTrace.
+    ^ 0
+  )
+
+  public main: args = (
+    args size = 1 ifTrue: [
+      ^ (PingPong new: 3) benchmark ].
+    args size = 2 ifTrue: [
+      | test |
+      test:: args at: 2.
+      test = 'halt'  ifTrue: [ ^ testHalt ].
+      test = 'dnu'   ifTrue: [ ^ testDNU  ].
+      test = 'stack' ifTrue: [ ^ testPrintStackTrace  ].
+    ].
+    ^ 0
+  )
+)

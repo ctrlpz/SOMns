@@ -1,10 +1,15 @@
 package som.primitives;
 
+import java.util.concurrent.locks.Condition;
+import java.util.concurrent.locks.ReentrantLock;
+
 import com.oracle.truffle.api.dsl.GenerateNodeFactory;
 import com.oracle.truffle.api.dsl.Specialization;
-import com.oracle.truffle.api.source.SourceSection;
 
+import bd.primitives.Primitive;
 import som.interpreter.actors.SFarReference;
+import som.primitives.threading.TaskThreads.SomForkJoinTask;
+import som.primitives.threading.TaskThreads.SomThreadTask;
 import som.vmobjects.SArray.SMutableArray;
 import som.vmobjects.SBlock;
 import som.vmobjects.SInvokable;
@@ -12,11 +17,8 @@ import som.vmobjects.SObjectWithClass;
 
 
 @GenerateNodeFactory
-@Primitive("object:identicalTo:")
+@Primitive(primitive = "object:identicalTo:", selector = "==")
 public abstract class EqualsEqualsPrim extends ComparisonPrim {
-  protected EqualsEqualsPrim(final boolean eagWrap, final SourceSection source) { super(eagWrap, source); }
-  protected EqualsEqualsPrim(final SourceSection source) { super(false, source); }
-
   @Specialization
   public final boolean doSBlock(final SBlock left, final Object right) {
     return left == right;
@@ -49,5 +51,25 @@ public abstract class EqualsEqualsPrim extends ComparisonPrim {
   @Specialization(guards = "notFarReference(right)")
   public final boolean doFarRefAndObj(final SFarReference left, final Object right) {
     return false;
+  }
+
+  @Specialization
+  public final boolean doThread(final SomThreadTask left, final Object right) {
+    return left == right;
+  }
+
+  @Specialization
+  public final boolean doThread(final SomForkJoinTask left, final Object right) {
+    return left == right;
+  }
+
+  @Specialization
+  public final boolean doMutex(final ReentrantLock left, final Object right) {
+    return left == right;
+  }
+
+  @Specialization
+  public final boolean doCondition(final Condition left, final Object right) {
+    return left == right;
   }
 }

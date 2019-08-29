@@ -1,14 +1,14 @@
 package som.interpreter.nodes;
 
+import com.oracle.truffle.api.CompilerDirectives;
 import com.oracle.truffle.api.frame.VirtualFrame;
-import com.oracle.truffle.api.instrumentation.StandardTags.StatementTag;
+import com.oracle.truffle.api.nodes.Node;
 import com.oracle.truffle.api.source.SourceSection;
 
 import som.VM;
 import som.interpreter.TruffleCompiler;
 import som.interpreter.nodes.nary.UnaryExpressionNode;
 import som.primitives.ObjectPrims.IsValue;
-import som.vm.constants.KernelObj;
 import som.vmobjects.SObject.SImmutableObject;
 
 
@@ -19,20 +19,20 @@ import som.vmobjects.SObject.SImmutableObject;
  */
 public abstract class IsValueCheckNode extends UnaryExpressionNode {
 
-  public static IsValueCheckNode create(final SourceSection source, final ExpressionNode self) {
-    return new UninitializedNode(source, self);
+  public static IsValueCheckNode create(final SourceSection source,
+      final ExpressionNode self) {
+    return new UninitializedNode(self).initialize(source);
   }
 
   @Child protected ExpressionNode self;
 
-  protected IsValueCheckNode(final SourceSection source, final ExpressionNode self) {
-    super(false, source);
+  protected IsValueCheckNode(final ExpressionNode self) {
     this.self = self;
   }
 
   private static final class UninitializedNode extends IsValueCheckNode {
-    UninitializedNode(final SourceSection source, final ExpressionNode self) {
-      super(source, self);
+    UninitializedNode(final ExpressionNode self) {
+      super(self);
     }
 
     @Override
@@ -43,6 +43,7 @@ public abstract class IsValueCheckNode extends UnaryExpressionNode {
 
     @Override
     public Object executeEvaluated(final VirtualFrame frame, final Object receiver) {
+      CompilerDirectives.transferToInterpreterAndInvalidate();
       return specialize(frame, receiver);
     }
 
@@ -50,26 +51,48 @@ public abstract class IsValueCheckNode extends UnaryExpressionNode {
       if (!(receiver instanceof SImmutableObject)) {
         // can remove ourselves, this node is only used in initializers,
         // which are by definition monomorphic
-        replace(self);
+        dropCheckNode();
         return receiver;
       }
 
       SImmutableObject rcvr = (SImmutableObject) receiver;
 
       if (rcvr.isValue()) {
-        return replace(new ValueCheckNode(sourceSection, self)).
-            executeEvaluated(frame, receiver);
+        ValueCheckNode node = new ValueCheckNode(self).initialize(sourceSection);
+        return replace(node).executeEvaluated(frame, receiver);
       } else {
         // neither transfer object nor value, so nothing to check
-        replace(self);
+        dropCheckNode();
         return receiver;
+      }
+    }
+
+    private void dropCheckNode() {
+      if (getParent() instanceof WrapperNode) {
+        // in case there is a wrapper, get rid of it first
+        Node wrapper = getParent();
+        wrapper.replace(self);
+        notifyInserted(self);
+      } else {
+        replace(self);
       }
     }
   }
 
   private static final class ValueCheckNode extends IsValueCheckNode {
-    ValueCheckNode(final SourceSection source, final ExpressionNode self) {
-      super(source, self);
+
+    @Child protected ExceptionSignalingNode notAValue;
+
+    ValueCheckNode(final ExpressionNode self) {
+      super(self);
+    }
+
+    @Override
+    @SuppressWarnings("unchecked")
+    public ValueCheckNode initialize(final SourceSection sourceSection) {
+      super.initialize(sourceSection);
+      notAValue = insert(ExceptionSignalingNode.createNotAValueNode(sourceSection));
+      return this;
     }
 
     @Override
@@ -80,7 +103,7 @@ public abstract class IsValueCheckNode extends UnaryExpressionNode {
       if (allFieldsContainValues) {
         return rcvr;
       }
-      return KernelObj.signalException("signalNotAValueWith:", receiver);
+      return notAValue.signal(rcvr);
     }
 
     private boolean allFieldsContainValues(final SImmutableObject rcvr) {
@@ -128,13 +151,5 @@ public abstract class IsValueCheckNode extends UnaryExpressionNode {
   @Override
   public Object executeGeneric(final VirtualFrame frame) {
     return executeEvaluated(frame, self.executeGeneric(frame));
-  }
-
-  @Override
-  protected final boolean isTaggedWithIgnoringEagerness(final Class<?> tag) {
-    if (tag == StatementTag.class) {
-      return false;
-    }
-    return super.isTaggedWithIgnoringEagerness(tag);
   }
 }

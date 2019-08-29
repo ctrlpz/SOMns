@@ -1,38 +1,44 @@
 package som.primitives.actors;
 
 import com.oracle.truffle.api.CompilerDirectives.CompilationFinal;
+import com.oracle.truffle.api.CompilerDirectives.TruffleBoundary;
 import com.oracle.truffle.api.dsl.GenerateNodeFactory;
 import com.oracle.truffle.api.dsl.Specialization;
-import com.oracle.truffle.api.source.SourceSection;
 
+import bd.primitives.Primitive;
+import som.compiler.MixinBuilder.MixinDefinitionId;
 import som.interpreter.actors.SFarReference;
 import som.interpreter.actors.SPromise;
 import som.interpreter.actors.SPromise.SResolver;
 import som.interpreter.nodes.nary.UnaryExpressionNode;
-import som.primitives.Primitive;
+import som.interpreter.nodes.nary.UnaryExpressionNode.UnarySystemOperation;
+import som.primitives.TimerPrim;
 import som.vmobjects.SClass;
 import som.vmobjects.SObject.SImmutableObject;
 
 
 public final class ActorClasses {
-  @GenerateNodeFactory
-  @Primitive("actorsFarReferenceClass:")
-  public abstract static class SetFarReferenceClassPrim extends UnaryExpressionNode {
-    public SetFarReferenceClassPrim(final SourceSection source) { super(false, source); }
 
+  @CompilationFinal public static SImmutableObject  ActorModule;
+  @CompilationFinal public static MixinDefinitionId FarRefId;
+
+  @GenerateNodeFactory
+  @Primitive(primitive = "actorsFarReferenceClass:")
+  public abstract static class SetFarReferenceClassPrim extends UnaryExpressionNode {
     @Specialization
+    @TruffleBoundary
     public final SClass setClass(final SClass value) {
       SFarReference.setSOMClass(value);
+      FarRefId = value.getMixinDefinition().getMixinId();
       return value;
     }
   }
 
   @GenerateNodeFactory
-  @Primitive("actorsPromiseClass:")
+  @Primitive(primitive = "actorsPromiseClass:")
   public abstract static class SetPromiseClassPrim extends UnaryExpressionNode {
-    public SetPromiseClassPrim(final SourceSection source) { super(false, source); }
-
     @Specialization
+    @TruffleBoundary
     public final SClass setClass(final SClass value) {
       SPromise.setSOMClass(value);
       return value;
@@ -40,11 +46,10 @@ public final class ActorClasses {
   }
 
   @GenerateNodeFactory
-  @Primitive("actorsPairClass:")
+  @Primitive(primitive = "actorsPairClass:")
   public abstract static class SetPairClassPrim extends UnaryExpressionNode {
-    public SetPairClassPrim(final SourceSection source) { super(false, source); }
-
     @Specialization
+    @TruffleBoundary
     public final SClass setClass(final SClass value) {
       SPromise.setPairClass(value);
       return value;
@@ -52,27 +57,24 @@ public final class ActorClasses {
   }
 
   @GenerateNodeFactory
-  @Primitive("actorsResolverClass:")
+  @Primitive(primitive = "actorsResolverClass:")
   public abstract static class SetResolverClassPrim extends UnaryExpressionNode {
-    public SetResolverClassPrim(final SourceSection source) { super(false, source); }
-
     @Specialization
+    @TruffleBoundary
     public final SClass setClass(final SClass value) {
       SResolver.setSOMClass(value);
       return value;
     }
   }
 
-  @CompilationFinal public static SImmutableObject ActorModule;
-
   @GenerateNodeFactory
-  @Primitive("actorsModule:")
-  public abstract static class SetModulePrim extends UnaryExpressionNode {
-    public SetModulePrim(final SourceSection source) { super(false, source); }
-
+  @Primitive(primitive = "actorsModule:")
+  public abstract static class SetModulePrim extends UnarySystemOperation {
     @Specialization
+    @TruffleBoundary
     public final SImmutableObject setClass(final SImmutableObject value) {
       ActorModule = value;
+      TimerPrim.initializeTimer(vm);
       return value;
     }
   }

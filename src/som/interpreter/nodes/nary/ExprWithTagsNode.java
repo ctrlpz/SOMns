@@ -1,18 +1,19 @@
 package som.interpreter.nodes.nary;
 
 import com.oracle.truffle.api.CompilerDirectives.CompilationFinal;
-import com.oracle.truffle.api.instrumentation.InstrumentableFactory.WrapperNode;
+import com.oracle.truffle.api.instrumentation.StandardTags.ExpressionTag;
 import com.oracle.truffle.api.instrumentation.StandardTags.RootTag;
 import com.oracle.truffle.api.instrumentation.StandardTags.StatementTag;
+import com.oracle.truffle.api.instrumentation.Tag;
 import com.oracle.truffle.api.nodes.Node;
-import com.oracle.truffle.api.source.SourceSection;
 
 import som.interpreter.nodes.ExpressionNode;
 import som.vm.NotYetImplementedException;
+import tools.dym.Tags.ArgumentExpr;
 import tools.dym.Tags.ControlFlowCondition;
 import tools.dym.Tags.LoopBody;
-import tools.dym.Tags.PrimitiveArgument;
 import tools.dym.Tags.VirtualInvokeReceiver;
+
 
 public abstract class ExprWithTagsNode extends ExpressionNode {
 
@@ -36,22 +37,19 @@ public abstract class ExprWithTagsNode extends ExpressionNode {
   private static final byte CONTROL_FLOW_CONDITION = 1 << 2;
 
   /**
-   * Indicates that this node is an argument to a primitive.
+   * Indicates that this node is an argument to a send.
    */
-  private static final byte PRIMITIVE_ARGUMENT = 1 << 3;
+  private static final byte ARGUMENT = 1 << 3;
 
   /**
    * Indicates that this node determines a receiver for an invoke.
    */
   private static final byte VIRTUAL_INVOKE_RECEIVER = 1 << 4;
 
-  public ExprWithTagsNode(final SourceSection sourceSection) {
-    super(sourceSection);
-  }
-
-  public ExprWithTagsNode(final ExpressionNode wrappedNode) {
-    super(wrappedNode);
-  }
+  /**
+   * Indicate that this node is the first/root node of a statement.
+   */
+  private static final byte STATEMENT = 1 << 5;
 
   private boolean isTagged(final byte mask) {
     return (tagMark & mask) != 0;
@@ -68,15 +66,19 @@ public abstract class ExprWithTagsNode extends ExpressionNode {
   public void markAsRootExpression() {
     assert !isTagged(ROOT_EXPR);
     assert !isTagged(LOOP_BODY);
-    assert !isTagged(PRIMITIVE_ARGUMENT);
+    assert !isTagged(ARGUMENT);
     assert !isTagged(CONTROL_FLOW_CONDITION);
     assert getSourceSection() != null;
     tagWith(ROOT_EXPR);
   }
 
   @Override
+  public boolean isMarkedAsRootExpression() {
+    return isTagged(ROOT_EXPR);
+  }
+
+  @Override
   public void markAsLoopBody() {
-    assert !isTagged(LOOP_BODY);
     assert !isTagged(ROOT_EXPR);
     assert !isTagged(CONTROL_FLOW_CONDITION);
     assert getSourceSection() != null;
@@ -87,15 +89,14 @@ public abstract class ExprWithTagsNode extends ExpressionNode {
   public void markAsControlFlowCondition() {
     assert !isTagged(LOOP_BODY);
     assert !isTagged(ROOT_EXPR);
-    assert !isTagged(CONTROL_FLOW_CONDITION);
     assert getSourceSection() != null;
     tagWith(CONTROL_FLOW_CONDITION);
   }
 
   @Override
-  public void markAsPrimitiveArgument() {
+  public void markAsArgument() {
     assert getSourceSection() != null;
-    tagWith(PRIMITIVE_ARGUMENT);
+    tagWith(ARGUMENT);
   }
 
   @Override
@@ -105,35 +106,45 @@ public abstract class ExprWithTagsNode extends ExpressionNode {
   }
 
   @Override
+  public void markAsStatement() {
+    assert getSourceSection() != null;
+    tagWith(STATEMENT);
+  }
+
+  @Override
   protected void onReplace(final Node newNode, final CharSequence reason) {
-    if (newNode instanceof WrapperNode) { return; }
+    if (newNode instanceof WrapperNode) {
+      return;
+    }
 
     if (newNode instanceof ExprWithTagsNode) {
       ExprWithTagsNode n = (ExprWithTagsNode) newNode;
       n.tagMark = tagMark;
-    } else if (newNode instanceof EagerPrimitive) {
-      ((EagerPrimitive) newNode).setTags(tagMark);
+    } else if (newNode instanceof EagerPrimitiveNode) {
+      ((EagerPrimitiveNode) newNode).setTags(tagMark);
     } else {
       throw new NotYetImplementedException();
     }
   }
 
   @Override
-  protected boolean isTaggedWith(final Class<?> tag) {
-    if (tag == StatementTag.class) {
+  public boolean hasTag(final Class<? extends Tag> tag) {
+    if (tag == ExpressionTag.class) {
       return true;
+    } else if (tag == StatementTag.class) {
+      return isTagged(STATEMENT);
     } else if (tag == RootTag.class) {
       return isTagged(ROOT_EXPR);
     } else if (tag == LoopBody.class) {
       return isTagged(LOOP_BODY);
     } else if (tag == ControlFlowCondition.class) {
       return isTagged(CONTROL_FLOW_CONDITION);
-    } else if (tag == PrimitiveArgument.class) {
-      return isTagged(PRIMITIVE_ARGUMENT);
+    } else if (tag == ArgumentExpr.class) {
+      return isTagged(ARGUMENT);
     } else if (tag == VirtualInvokeReceiver.class) {
       return isTagged(VIRTUAL_INVOKE_RECEIVER);
     } else {
-      return super.isTaggedWith(tag);
+      return super.hasTag(tag);
     }
   }
 }

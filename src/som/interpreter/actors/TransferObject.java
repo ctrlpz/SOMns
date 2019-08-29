@@ -3,21 +3,22 @@ package som.interpreter.actors;
 import java.util.HashMap;
 import java.util.Map;
 
+import org.graalvm.collections.EconomicMap;
+
+import com.oracle.truffle.api.CompilerDirectives;
+import com.oracle.truffle.api.CompilerDirectives.TruffleBoundary;
+
 import som.compiler.MixinDefinition.SlotDefinition;
 import som.interpreter.objectstorage.ObjectLayout;
 import som.interpreter.objectstorage.StorageLocation;
 import som.vm.NotYetImplementedException;
 import som.vm.constants.Nil;
 import som.vmobjects.SAbstractObject;
-import som.vmobjects.SArray;
 import som.vmobjects.SArray.PartiallyEmptyArray;
 import som.vmobjects.SArray.STransferArray;
 import som.vmobjects.SObject;
 import som.vmobjects.SObjectWithClass;
 import som.vmobjects.SObjectWithClass.SObjectWithoutFields;
-
-import com.oracle.truffle.api.CompilerDirectives;
-import com.oracle.truffle.api.CompilerDirectives.TruffleBoundary;
 
 
 public final class TransferObject {
@@ -48,19 +49,22 @@ public final class TransferObject {
   public static SObject transfer(final SObject obj, final Actor origin,
       final Actor target,
       final Map<SAbstractObject, SAbstractObject> transferedObjects) {
-    assert obj.getSOMClass().isTransferObject() : "only TransferObjects should be handled here";
+    assert obj.getSOMClass()
+              .isTransferObject() : "only TransferObjects should be handled here";
     assert !obj.isValue() : "TransferObjects can't be Values";
 
     ObjectLayout layout = obj.getObjectLayout();
-    HashMap<SlotDefinition, StorageLocation> fields = layout.getStorageLocations();
+    EconomicMap<SlotDefinition, StorageLocation> fields = layout.getStorageLocations();
     SObject newObj = obj.cloneBasics();
 
-    Map<SAbstractObject, SAbstractObject> transferMap = takeOrCreateTransferMap(transferedObjects);
+    Map<SAbstractObject, SAbstractObject> transferMap =
+        takeOrCreateTransferMap(transferedObjects);
 
-    assert !transferMap.containsKey(obj) : "The algorithm should not transfer an object twice.";
+    assert !transferMap.containsKey(
+        obj) : "The algorithm should not transfer an object twice.";
     transferMap.put(obj, newObj);
 
-    for (StorageLocation location : fields.values()) {
+    for (StorageLocation location : fields.getValues()) {
       if (location.isObjectLocation()) {
         Object orgObj = location.read(obj);
 
@@ -87,13 +91,15 @@ public final class TransferObject {
 
     assert newObj.isPartiallyEmptyType() || newObj.isObjectType();
 
-    Map<SAbstractObject, SAbstractObject> transferMap = takeOrCreateTransferMap(transferedObjects);
+    Map<SAbstractObject, SAbstractObject> transferMap =
+        takeOrCreateTransferMap(transferedObjects);
 
-    assert !transferMap.containsKey(arr) : "The algorithm should not transfer an object twice.";
+    assert !transferMap.containsKey(
+        arr) : "The algorithm should not transfer an object twice.";
     transferMap.put(arr, newObj);
 
     if (newObj.isObjectType()) {
-      Object[] storage = newObj.getObjectStorage(SArray.ObjectStorageType);
+      Object[] storage = newObj.getObjectStorage();
 
       for (int i = 0; i < storage.length; i++) {
         Object orgObj = storage[i];
@@ -107,7 +113,8 @@ public final class TransferObject {
         storage[i] = trnfObj;
       }
     } else if (newObj.isPartiallyEmptyType()) {
-      PartiallyEmptyArray parr = newObj.getPartiallyEmptyStorage(SArray.PartiallyEmptyStorageType);
+      PartiallyEmptyArray parr =
+          newObj.getPartiallyEmptyStorage();
       Object[] storage = parr.getStorage();
 
       for (int i = 0; i < storage.length; i++) {

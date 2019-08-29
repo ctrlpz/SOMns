@@ -22,32 +22,32 @@
 package som.interpreter.nodes.literals;
 
 import com.oracle.truffle.api.frame.VirtualFrame;
-import com.oracle.truffle.api.instrumentation.Instrumentable;
+import com.oracle.truffle.api.instrumentation.GenerateWrapper;
+import com.oracle.truffle.api.instrumentation.ProbeNode;
+import com.oracle.truffle.api.instrumentation.Tag;
 import com.oracle.truffle.api.nodes.NodeCost;
 import com.oracle.truffle.api.nodes.NodeInfo;
-import com.oracle.truffle.api.source.SourceSection;
 
+import bd.inlining.nodes.Inlinable;
+import bd.primitives.nodes.PreevaluatedExpression;
 import som.compiler.MethodBuilder;
-import som.compiler.Variable.Local;
 import som.interpreter.nodes.ExpressionNode;
-import som.interpreter.nodes.PreevaluatedExpression;
 import som.interpreter.nodes.nary.ExprWithTagsNode;
-import tools.highlight.Tags.LiteralTag;
+import tools.debugger.Tags.LiteralTag;
+
 
 @NodeInfo(cost = NodeCost.NONE)
-@Instrumentable(factory = LiteralNodeWrapper.class)
+@GenerateWrapper
 public abstract class LiteralNode extends ExprWithTagsNode
-    implements PreevaluatedExpression {
+    implements PreevaluatedExpression, Inlinable<MethodBuilder> {
 
-  public LiteralNode(final SourceSection source) {
-    super(source);
-  }
+  protected LiteralNode() {}
 
-  /**
-   * For use by wrapping only.
-   */
-  protected LiteralNode(final LiteralNode wrappedNode) {
-    super(wrappedNode);
+  protected LiteralNode(final LiteralNode wrapped) {}
+
+  @Override
+  public WrapperNode createWrapper(final ProbeNode probe) {
+    return new LiteralNodeWrapper(this, probe);
   }
 
   @Override
@@ -56,17 +56,17 @@ public abstract class LiteralNode extends ExprWithTagsNode
     return executeGeneric(frame);
   }
 
-  public ExpressionNode inline(final MethodBuilder builder,
-      final Local... blockArguments) {
+  @Override
+  public ExpressionNode inline(final MethodBuilder builder) {
     return this;
   }
 
   @Override
-  protected boolean isTaggedWith(final Class<?> tag) {
+  public boolean hasTag(final Class<? extends Tag> tag) {
     if (tag == LiteralTag.class) {
       return true;
     } else {
-      return super.isTaggedWith(tag);
+      return super.hasTag(tag);
     }
   }
 }

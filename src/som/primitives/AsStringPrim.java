@@ -5,17 +5,17 @@ import java.math.BigInteger;
 import com.oracle.truffle.api.CompilerDirectives.TruffleBoundary;
 import com.oracle.truffle.api.dsl.GenerateNodeFactory;
 import com.oracle.truffle.api.dsl.Specialization;
-import com.oracle.truffle.api.source.SourceSection;
 
+import bd.primitives.Primitive;
 import som.interpreter.nodes.nary.UnaryBasicOperation;
 import som.vmobjects.SSymbol;
 
 
 @GenerateNodeFactory
-@Primitive({"symbolAsString:", "intAsString:", "doubleAsString:"})
+@Primitive(primitive = "symbolAsString:")
+@Primitive(primitive = "intAsString:")
+@Primitive(primitive = "doubleAsString:")
 public abstract class AsStringPrim extends UnaryBasicOperation {
-  public AsStringPrim(final SourceSection source) { super(false, source); }
-
   // TODO: assign a tag
 
   @Specialization

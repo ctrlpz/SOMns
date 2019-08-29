@@ -18,24 +18,25 @@ public final class JsonWriter {
 
   public static final String METHOD_INVOCATION_PROFILE = "methodInvocationProfile";
   public static final String METHOD_CALLSITE           = "methodCallsite";
+  public static final String CLOSURE_APPLICATIONS      = "closureApplications";
   public static final String NEW_OBJECT_COUNT          = "newObjectCount";
   public static final String NEW_ARRAY_COUNT           = "newArrayCount";
-  public static final String FIELD_READS      = "fieldReads";
-  public static final String FIELD_WRITES     = "fieldWrites";
-  public static final String CLASS_READS      = "classReads";
-  public static final String BRANCH_PROFILES  = "branchProfile";
-  public static final String LITERAL_READS    = "literalReads";
-  public static final String LOCAL_READS      = "localReads";
-  public static final String LOCAL_WRITES     = "localWrites";
-  public static final String OPERATIONS       = "operations";
-  public static final String LOOPS            = "loops";
+  public static final String FIELD_READS               = "fieldReads";
+  public static final String FIELD_WRITES              = "fieldWrites";
+  public static final String CLASS_READS               = "classReads";
+  public static final String BRANCH_PROFILES           = "branchProfile";
+  public static final String LITERAL_READS             = "literalReads";
+  public static final String LOCAL_READS               = "localReads";
+  public static final String LOCAL_WRITES              = "localWrites";
+  public static final String OPERATIONS                = "operations";
+  public static final String LOOPS                     = "loops";
 
   private final Map<String, Map<SourceSection, ? extends JsonSerializable>> data;
-  private final String outputFile;
+  private final String                                                      outputFile;
 
   private JsonWriter(final Map<String, Map<SourceSection, ? extends JsonSerializable>> data,
       final String outputFile) {
-    this.data       = data;
+    this.data = data;
     this.outputFile = outputFile;
   }
 
@@ -59,33 +60,31 @@ public final class JsonWriter {
   private JSONObjectBuilder sourceToJson(final Source s, final String id) {
     JSONObjectBuilder builder = JSONHelper.object();
     builder.add("id", id);
-    builder.add("sourceText", s.getCode());
+    builder.add("sourceText", s.getCharacters().toString());
     builder.add("mimeType", s.getMimeType());
     builder.add("name", s.getName());
-    builder.add("shortName", s.getShortName());
+    builder.add("uri", s.getURI().toString());
     return builder;
   }
 
-  private JSONObjectBuilder sectionToJson(final SourceSection ss, final String id, final Map<Source, String> sourceToId) {
+  private JSONObjectBuilder sectionToJson(final SourceSection ss, final String id,
+      final Map<Source, String> sourceToId) {
     JSONObjectBuilder builder = JSONHelper.object();
 
     builder.add("id", id);
     builder.add("firstIndex", ss.getCharIndex());
     builder.add("length", ss.getCharLength());
-    builder.add("identifier", ss.getIdentifier());
-    builder.add("description", ss.getShortDescription());
     builder.add("sourceId", sourceToId.get(ss.getSource()));
 
-    // Checkstyle: stop
-    System.out.println("TODO: add tags!");
-    // Checkstyle: resume
-//    if (ss.getTags() != null && ss.getTags().length > 0) {
-//      JSONArrayBuilder arr = JSONHelper.array();
-//      for (String tag : ss.getTags()) {
-//        arr.add(tag);
-//      }
-//      builder.add("tags", arr);
-//    }
+    // TODO: add tags to section, need to get it from some tag map, I think
+    // if (ss.getTags() != null && ss.getTags().length > 0) {
+    // JSONArrayBuilder arr = JSONHelper.array();
+    // for (String tag : ss.getTags()) {
+    // arr.add(tag);
+    // }
+    // builder.add("tags", arr);
+    // }
+
     builder.add("data", collectDataForSection(ss));
 
     return builder;
@@ -102,7 +101,8 @@ public final class JsonWriter {
     return result;
   }
 
-  public static void fileOut(final Map<String, Map<SourceSection, ? extends JsonSerializable>> data,
+  public static void fileOut(
+      final Map<String, Map<SourceSection, ? extends JsonSerializable>> data,
       final String outputFile) {
     new JsonWriter(data, outputFile).createJsonFile();
   }
@@ -125,7 +125,8 @@ public final class JsonWriter {
 
     JSONObjectBuilder allSectionsJson = JSONHelper.object();
     for (SourceSection ss : allSections) {
-      allSectionsJson.add(sectionToId.get(ss), sectionToJson(ss, sectionToId.get(ss), sourceToId));
+      allSectionsJson.add(sectionToId.get(ss),
+          sectionToJson(ss, sectionToId.get(ss), sourceToId));
     }
 
     JSONObjectBuilder root = JSONHelper.object();

@@ -1,51 +1,52 @@
 package som.interpreter.objectstorage;
 
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Map.Entry;
-
-import som.compiler.MixinDefinition.SlotDefinition;
-import som.interpreter.objectstorage.StorageLocation.AbstractObjectStorageLocation;
-import som.interpreter.objectstorage.StorageLocation.DoubleStorageLocation;
-import som.interpreter.objectstorage.StorageLocation.LongStorageLocation;
-import som.interpreter.objectstorage.StorageLocation.UnwrittenStorageLocation;
-import som.vm.NotYetImplementedException;
-import som.vmobjects.SObject;
+import org.graalvm.collections.EconomicMap;
+import org.graalvm.collections.EconomicSet;
+import org.graalvm.collections.MapCursor;
 
 import com.oracle.truffle.api.Assumption;
 import com.oracle.truffle.api.Truffle;
 import com.oracle.truffle.api.nodes.InvalidAssumptionException;
 
+import som.compiler.MixinDefinition.SlotDefinition;
+import som.interpreter.objectstorage.StorageLocation.DoubleStorageLocation;
+import som.interpreter.objectstorage.StorageLocation.LongStorageLocation;
+import som.interpreter.objectstorage.StorageLocation.ObjectStorageLocation;
+import som.interpreter.objectstorage.StorageLocation.UnwrittenStorageLocation;
+import som.vm.NotYetImplementedException;
+import som.vmobjects.SObject;
+
 
 public final class ObjectLayout {
   private final ClassFactory forClasses;
-  private final Assumption latestLayoutForClass;
+  private final Assumption   latestLayoutForClass;
 
-  private final int primitiveStorageLocationsUsed;
-  private final int objectStorageLocationsUsed;
-  private final int totalNumberOfStorageLocations;
+  private final int     primitiveStorageLocationsUsed;
+  private final int     objectStorageLocationsUsed;
+  private final int     totalNumberOfStorageLocations;
   private final boolean onlyImmutableFields;
   private final boolean isTransferObject;
 
-  private final HashMap<SlotDefinition, StorageLocation> storageLocations;
-  private final HashMap<SlotDefinition, Class<?>>        storageTypes;
+  private final EconomicMap<SlotDefinition, StorageLocation> storageLocations;
+  private final EconomicMap<SlotDefinition, Class<?>>        storageTypes;
 
-  public ObjectLayout(final HashSet<SlotDefinition> slots,
+  public ObjectLayout(final EconomicSet<SlotDefinition> slots,
       final ClassFactory forClasses, final boolean isTransferObject) {
     this(getInitialStorageTypes(slots), slots.size(), forClasses,
         isTransferObject);
   }
 
-  private static HashMap<SlotDefinition, Class<?>> getInitialStorageTypes(
-      final HashSet<SlotDefinition> slots) {
-    HashMap<SlotDefinition, Class<?>> types = new HashMap<SlotDefinition, Class<?>>((int) (slots.size() / 0.75f));
+  private static EconomicMap<SlotDefinition, Class<?>> getInitialStorageTypes(
+      final EconomicSet<SlotDefinition> slots) {
+    EconomicMap<SlotDefinition, Class<?>> types =
+        EconomicMap.create((int) (slots.size() / 0.75f));
     for (SlotDefinition slot : slots) {
       types.put(slot, null);
     }
     return types;
   }
 
-  public ObjectLayout(final HashMap<SlotDefinition, Class<?>> knownFieldTypes,
+  public ObjectLayout(final EconomicMap<SlotDefinition, Class<?>> knownFieldTypes,
       final int numberOfFields, final ClassFactory forClasses,
       final boolean isTransferObject) {
     this.latestLayoutForClass = Truffle.getRuntime().createAssumption();
@@ -54,14 +55,15 @@ public final class ObjectLayout {
 
     storageTypes = knownFieldTypes;
     totalNumberOfStorageLocations = numberOfFields;
-    storageLocations = new HashMap<>((int) (numberOfFields / 0.75f));
+    storageLocations = EconomicMap.create((int) (numberOfFields / 0.75f));
 
     int nextFreePrimIdx = 0;
-    int nextFreeObjIdx  = 0;
+    int nextFreeObjIdx = 0;
 
     boolean onlyImmutable = true;
 
-    for (Entry<SlotDefinition, Class<?>> entry : knownFieldTypes.entrySet()) {
+    MapCursor<SlotDefinition, Class<?>> entry = knownFieldTypes.getEntries();
+    while (entry.advance()) {
       StorageLocation storage;
       if (entry.getValue() == Long.class) {
         storage = StorageLocation.createForLong(this, entry.getKey(), nextFreePrimIdx);
@@ -81,8 +83,8 @@ public final class ObjectLayout {
     }
 
     primitiveStorageLocationsUsed = nextFreePrimIdx;
-    objectStorageLocationsUsed    = nextFreeObjIdx;
-    onlyImmutableFields           = onlyImmutable;
+    objectStorageLocationsUsed = nextFreeObjIdx;
+    onlyImmutableFields = onlyImmutable;
   }
 
   public boolean isValid() {
@@ -109,7 +111,7 @@ public final class ObjectLayout {
     return totalNumberOfStorageLocations;
   }
 
-  public HashMap<SlotDefinition, StorageLocation> getStorageLocations() {
+  public EconomicMap<SlotDefinition, StorageLocation> getStorageLocations() {
     return storageLocations;
   }
 
@@ -118,13 +120,12 @@ public final class ObjectLayout {
     if (type == Object.class) {
       return this;
     } else {
-      assert type != Object.class;
       return cloneWithChanged(slot, Object.class);
     }
   }
 
   public ObjectLayout withInitializedField(final SlotDefinition slot, final Class<?> type) {
-    Class <?> specType;
+    Class<?> specType;
     if (type == Long.class || type == Double.class) {
       specType = type;
     } else {
@@ -135,6 +136,12 @@ public final class ObjectLayout {
     if (currentType == specType) {
       return this;
     } else {
+      // It can happen that two threads try to initialize the field to different types
+      // This is handled here by ensuring that we generalize it when necessary.
+      if ((currentType == Long.class && specType == Double.class)
+          || (currentType == Double.class && specType == Long.class)) {
+        specType = Object.class;
+      }
       assert currentType == null;
       return cloneWithChanged(slot, specType);
     }
@@ -145,7 +152,7 @@ public final class ObjectLayout {
     // we create a new updated layout, and invalidate the old one
     latestLayoutForClass.invalidate();
 
-    HashMap<SlotDefinition, Class<?>> withChangedField = new HashMap<>(storageTypes);
+    EconomicMap<SlotDefinition, Class<?>> withChangedField = EconomicMap.create(storageTypes);
     withChangedField.put(slot, specType);
     return new ObjectLayout(withChangedField, totalNumberOfStorageLocations,
         forClasses, isTransferObject);
@@ -157,20 +164,26 @@ public final class ObjectLayout {
 
   public int getNumberOfUsedExtendedObjectStorageLocations() {
     int requiredExtensionFields = objectStorageLocationsUsed - SObject.NUM_OBJECT_FIELDS;
-    if (requiredExtensionFields < 0) { return 0; }
+    if (requiredExtensionFields < 0) {
+      return 0;
+    }
     return requiredExtensionFields;
   }
 
   public int getNumberOfUsedExtendedPrimStorageLocations() {
     int requiredExtensionFields = primitiveStorageLocationsUsed - SObject.NUM_PRIMITIVE_FIELDS;
-    if (requiredExtensionFields < 0) { return 0;  }
+    if (requiredExtensionFields < 0) {
+      return 0;
+    }
     return requiredExtensionFields;
   }
 
   private String fieldsAndLocations() {
     String s = "";
-    for (Entry<SlotDefinition, StorageLocation> e : storageLocations.entrySet()) {
-      if (!s.equals("")) {
+
+    MapCursor<SlotDefinition, StorageLocation> e = storageLocations.getEntries();
+    while (e.advance()) {
+      if (!"".equals(s)) {
         s += ", ";
       }
 
@@ -182,7 +195,7 @@ public final class ObjectLayout {
         type = "long";
       } else if (loc instanceof DoubleStorageLocation) {
         type = "double";
-      } else if (loc instanceof AbstractObjectStorageLocation) {
+      } else if (loc instanceof ObjectStorageLocation) {
         type = "object";
       } else {
         throw new NotYetImplementedException(); // should not be reached

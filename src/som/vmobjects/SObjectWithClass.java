@@ -1,27 +1,31 @@
 package som.vmobjects;
 
-import som.interpreter.objectstorage.ClassFactory;
-import som.vm.ObjectSystem;
-
 import com.oracle.truffle.api.CompilerAsserts;
 import com.oracle.truffle.api.CompilerDirectives.CompilationFinal;
+import com.oracle.truffle.api.frame.MaterializedFrame;
+import com.oracle.truffle.api.interop.InteropLibrary;
+import com.oracle.truffle.api.library.ExportLibrary;
+
+import som.interpreter.objectstorage.ClassFactory;
 
 
-public abstract class SObjectWithClass extends SAbstractObject {
+@ExportLibrary(InteropLibrary.class)
+public abstract class SObjectWithClass extends SAbstractObject implements SObjectWithContext {
   @CompilationFinal protected SClass       clazz;
-  @CompilationFinal protected ClassFactory classGroup; // the factory by which clazz was created
+  @CompilationFinal protected ClassFactory classGroup; // the factory by which clazz was
+                                                       // created
 
   public SObjectWithClass(final SClass clazz, final ClassFactory classGroup) {
-    this.clazz      = clazz;
+    this.clazz = clazz;
     this.classGroup = classGroup;
     assert clazz.getInstanceFactory() == classGroup;
   }
 
-  public SObjectWithClass() { }
+  public SObjectWithClass() {}
 
   /** Copy Constructor. */
   protected SObjectWithClass(final SObjectWithClass old) {
-    this.clazz      = old.clazz;
+    this.clazz = old.clazz;
     this.classGroup = old.classGroup;
   }
 
@@ -36,11 +40,12 @@ public abstract class SObjectWithClass extends SAbstractObject {
   }
 
   public void setClass(final SClass value) {
-    CompilerAsserts.neverPartOfCompilation("Only meant to be used in object system initalization");
+    CompilerAsserts.neverPartOfCompilation(
+        "Only meant to be used in object system initalization");
     assert value != null;
-    clazz      = value;
+    clazz = value;
     classGroup = value.getInstanceFactory();
-    assert classGroup != null || !ObjectSystem.isInitialized();
+    // assert classGroup != null || !ObjectSystem.isInitialized();
   }
 
   public void setClassGroup(final ClassFactory factory) {
@@ -48,13 +53,23 @@ public abstract class SObjectWithClass extends SAbstractObject {
     assert factory.getClassName() == clazz.getName();
   }
 
+  @Override
+  public MaterializedFrame getContext() {
+    return clazz.getContext();
+  }
+
   public static final class SObjectWithoutFields extends SObjectWithClass {
     public SObjectWithoutFields(final SClass clazz, final ClassFactory factory) {
       super(clazz, factory);
     }
 
-    public SObjectWithoutFields() { super(); }
-    public SObjectWithoutFields(final SObjectWithoutFields old) { super(old); }
+    public SObjectWithoutFields() {
+      super();
+    }
+
+    public SObjectWithoutFields(final SObjectWithoutFields old) {
+      super(old);
+    }
 
     public SObjectWithoutFields cloneBasics() {
       return new SObjectWithoutFields(this);

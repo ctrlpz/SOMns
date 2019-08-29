@@ -2,12 +2,19 @@ package som.primitives;
 
 import java.math.BigInteger;
 
+import com.oracle.truffle.api.debug.DebuggerTags.AlwaysHalt;
 import com.oracle.truffle.api.dsl.Cached;
 import com.oracle.truffle.api.dsl.GenerateNodeFactory;
 import com.oracle.truffle.api.dsl.ImportStatic;
 import com.oracle.truffle.api.dsl.Specialization;
-import com.oracle.truffle.api.source.SourceSection;
+import com.oracle.truffle.api.frame.VirtualFrame;
+import com.oracle.truffle.api.instrumentation.GenerateWrapper;
+import com.oracle.truffle.api.instrumentation.ProbeNode;
+import com.oracle.truffle.api.instrumentation.Tag;
 
+import bd.primitives.Primitive;
+import bd.tools.nodes.Operation;
+import som.Output;
 import som.VM;
 import som.interpreter.Types;
 import som.interpreter.actors.SFarReference;
@@ -32,34 +39,37 @@ import tools.dym.Tags.OpComparison;
 public final class ObjectPrims {
 
   @GenerateNodeFactory
-  @Primitive("objClassName:")
+  @Primitive(primitive = "objClassName:")
   public abstract static class ObjectClassNamePrim extends UnaryExpressionNode {
-    public ObjectClassNamePrim(final SourceSection source) { super(false, source); }
-
     @Specialization
     public final SSymbol getName(final Object obj) {
-      VM.thisMethodNeedsToBeOptimized("Not yet optimized, need add specializations to remove Types.getClassOf");
+      VM.thisMethodNeedsToBeOptimized(
+          "Not yet optimized, need add specializations to remove Types.getClassOf");
       return Types.getClassOf(obj).getName();
     }
   }
 
   @GenerateNodeFactory
-  @Primitive("halt:")
+  @Primitive(primitive = "halt:")
   public abstract static class HaltPrim extends UnaryExpressionNode {
-    public HaltPrim(final SourceSection source) { super(false, source); }
-
     @Specialization
     public final Object doSAbstractObject(final Object receiver) {
-      VM.errorPrintln("BREAKPOINT");
+      Output.errorPrintln("BREAKPOINT");
       return receiver;
+    }
+
+    @Override
+    protected boolean hasTagIgnoringEagerness(final Class<? extends Tag> tag) {
+      if (tag == AlwaysHalt.class) {
+        return true;
+      }
+      return super.hasTagIgnoringEagerness(tag);
     }
   }
 
   @GenerateNodeFactory
-  @Primitive("objClass:")
+  @Primitive(primitive = "objClass:")
   public abstract static class ClassPrim extends UnaryExpressionNode {
-    public ClassPrim(final SourceSection source) { super(false, source); }
-
     @Specialization
     public final SClass doSAbstractObject(final SAbstractObject receiver) {
       return receiver.getSOMClass();
@@ -72,15 +82,15 @@ public final class ObjectPrims {
     }
   }
 
-  public abstract static class IsNilNode extends UnaryBasicOperation {
-    public IsNilNode(final SourceSection source) { super(false, source); }
-
+  @GenerateNodeFactory
+  @Primitive(selector = "isNil", noWrapper = true)
+  public abstract static class IsNilNode extends UnaryBasicOperation implements Operation {
     @Override
-    protected boolean isTaggedWithIgnoringEagerness(final Class<?> tag) {
+    protected boolean hasTagIgnoringEagerness(final Class<? extends Tag> tag) {
       if (tag == OpComparison.class) {
         return true;
       } else {
-        return super.isTaggedWithIgnoringEagerness(tag);
+        return super.hasTagIgnoringEagerness(tag);
       }
     }
 
@@ -88,17 +98,28 @@ public final class ObjectPrims {
     public final boolean isNil(final Object receiver) {
       return receiver == Nil.nilObject;
     }
-  }
-
-  public abstract static class NotNilNode extends UnaryBasicOperation {
-    public NotNilNode(final SourceSection source) { super(false, source); }
 
     @Override
-    protected boolean isTaggedWithIgnoringEagerness(final Class<?> tag) {
+    public String getOperation() {
+      return "isNil";
+    }
+
+    @Override
+    public int getNumArguments() {
+      return 1;
+    }
+  }
+
+  @GenerateNodeFactory
+  @Primitive(selector = "notNil", noWrapper = true)
+  public abstract static class NotNilNode extends UnaryBasicOperation
+      implements Operation {
+    @Override
+    protected boolean hasTagIgnoringEagerness(final Class<? extends Tag> tag) {
       if (tag == OpComparison.class) {
         return true;
       } else {
-        return super.isTaggedWithIgnoringEagerness(tag);
+        return super.hasTagIgnoringEagerness(tag);
       }
     }
 
@@ -106,21 +127,42 @@ public final class ObjectPrims {
     public final boolean isNotNil(final Object receiver) {
       return receiver != Nil.nilObject;
     }
+
+    @Override
+    public String getOperation() {
+      return "notNil";
+    }
+
+    @Override
+    public int getNumArguments() {
+      return 1;
+    }
   }
 
   /**
    * A node that checks whether a given object is a Value.
    */
   @GenerateNodeFactory
-  @Primitive("objIsValue:")
+  @Primitive(primitive = "objIsValue:")
   @ImportStatic(Nil.class)
+  @GenerateWrapper
   public abstract static class IsValue extends UnaryExpressionNode {
-    public IsValue(final SourceSection source) { super(false, source); }
+    protected IsValue() {}
 
-    public abstract boolean executeEvaluated(Object rcvr);
+    protected IsValue(final IsValue node) {}
+
+    @Override
+    public abstract Object executeEvaluated(VirtualFrame frame, Object rcvr);
+
+    public abstract boolean executeBoolean(VirtualFrame frame, Object rcvr);
+
+    @Override
+    public WrapperNode createWrapper(final ProbeNode probe) {
+      return new IsValueWrapper(this, probe);
+    }
 
     public static IsValue createSubNode() {
-      return IsValueFactory.create(null, null);
+      return IsValueFactory.create(null);
     }
 
     @Specialization
@@ -174,9 +216,9 @@ public final class ObjectPrims {
     }
 
     @Specialization
-    public final boolean isValue(final SClass rcvr,
+    public final boolean isValue(final VirtualFrame frame, final SClass rcvr,
         @Cached("createSubNode()") final IsValue enclosingObj) {
-      return enclosingObj.executeEvaluated(rcvr.getEnclosingObject());
+      return enclosingObj.executeBoolean(frame, rcvr.getEnclosingObject());
     }
 
     @Specialization
@@ -210,7 +252,8 @@ public final class ObjectPrims {
     }
 
     public static boolean isObjectValue(final Object obj) {
-      VM.callerNeedsToBeOptimized("This should only be used for prototyping, and then removed, because it is slow and duplicates code");
+      VM.callerNeedsToBeOptimized(
+          "This should only be used for prototyping, and then removed, because it is slow and duplicates code");
       if (obj instanceof Boolean ||
           obj instanceof Long ||
           obj instanceof BigInteger ||

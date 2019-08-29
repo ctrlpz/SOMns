@@ -11,6 +11,7 @@ import com.oracle.truffle.api.source.SourceSection;
 public class LoopProfile extends Counter {
 
   private int currentIterations;
+
   private final Map<Integer, Integer> loopIterations;
 
   public LoopProfile(final SourceSection source) {
@@ -42,7 +43,7 @@ public class LoopProfile extends Counter {
   private String mapToString() {
     String result = "[";
     for (Entry<Integer, Integer> e : loopIterations.entrySet()) {
-      if (!result.equals("[")) {
+      if (!"[".equals(result)) {
         result += "; ";
       }
       result += e.getKey() + "=" + e.getValue();

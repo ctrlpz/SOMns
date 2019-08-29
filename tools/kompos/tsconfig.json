@@ -1,0 +1,19 @@
+{
+  "compilerOptions": {
+    "target": "es6",
+    "outDir": "out",
+    "module": "amd",
+    "moduleResolution": "node",
+    "inlineSourceMap": true,
+    "allowJs": true,
+    "noUnusedLocals" : true,
+    "noUnusedParameters": true
+  },
+  "include": [
+    "tests/**/*",
+    "src/**/*"
+  ],
+  "exclude": [
+    "src/libs/**"
+  ]
+}

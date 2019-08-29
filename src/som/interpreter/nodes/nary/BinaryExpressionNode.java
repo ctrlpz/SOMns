@@ -1,74 +1,46 @@
 package som.interpreter.nodes.nary;
 
-import com.oracle.truffle.api.CompilerDirectives.CompilationFinal;
 import com.oracle.truffle.api.dsl.NodeChild;
 import com.oracle.truffle.api.dsl.NodeChildren;
 import com.oracle.truffle.api.frame.VirtualFrame;
-import com.oracle.truffle.api.instrumentation.Instrumentable;
-import com.oracle.truffle.api.instrumentation.InstrumentableFactory.WrapperNode;
-import com.oracle.truffle.api.nodes.Node;
-import com.oracle.truffle.api.source.SourceSection;
+import com.oracle.truffle.api.instrumentation.GenerateWrapper;
+import com.oracle.truffle.api.instrumentation.ProbeNode;
 
+import som.VM;
 import som.interpreter.nodes.ExpressionNode;
-import som.interpreter.nodes.PreevaluatedExpression;
+import som.vmobjects.SSymbol;
 
 
 @NodeChildren({
-  @NodeChild(value = "receiver", type = ExpressionNode.class),
-  @NodeChild(value = "argument", type = ExpressionNode.class)})
-@Instrumentable(factory = BinaryExpressionNodeWrapper.class)
-public abstract class BinaryExpressionNode extends ExprWithTagsNode
-    implements PreevaluatedExpression {
-  @CompilationFinal private boolean eagerlyWrapped;
+    @NodeChild(value = "receiver", type = ExpressionNode.class),
+    @NodeChild(value = "argument", type = ExpressionNode.class)})
+@GenerateWrapper
+public abstract class BinaryExpressionNode extends EagerlySpecializableNode {
 
-  public BinaryExpressionNode(final boolean eagerlyWrapped,
-      final SourceSection source) {
-    super(source);
-    this.eagerlyWrapped = eagerlyWrapped;
-  }
+  protected BinaryExpressionNode() {}
 
-  /**
-   * For wrapped nodes only.
-   */
-  protected BinaryExpressionNode(final BinaryExpressionNode wrappedNode) {
-    super(wrappedNode);
-    assert !wrappedNode.eagerlyWrapped : "I think this should be true.";
-    this.eagerlyWrapped = false;
-  }
+  protected BinaryExpressionNode(final BinaryExpressionNode wrappedNode) {}
 
-  /**
-   * This method is used by eager wrapper or if this node is not eagerly
-   * wrapped.
-   */
-  protected boolean isTaggedWithIgnoringEagerness(final Class<?> tag) {
-    return super.isTaggedWith(tag);
-  }
+  public abstract Object executeEvaluated(VirtualFrame frame, Object receiver,
+      Object argument);
 
   @Override
-  protected final boolean isTaggedWith(final Class<?> tag) {
-    if (eagerlyWrapped) {
-      return false;
-    } else {
-      return isTaggedWithIgnoringEagerness(tag);
-    }
+  public WrapperNode createWrapper(final ProbeNode probe) {
+    return new BinaryExpressionNodeWrapper(this, probe);
   }
-
-  @Override
-  protected void onReplace(final Node newNode, final CharSequence reason) {
-    if (newNode instanceof WrapperNode ||
-        !(newNode instanceof BinaryExpressionNode)) { return; }
-
-    BinaryExpressionNode n = (BinaryExpressionNode) newNode;
-    n.eagerlyWrapped = eagerlyWrapped;
-    super.onReplace(newNode, reason);
-  }
-
-  public abstract Object executeEvaluated(final VirtualFrame frame,
-      final Object receiver, Object argument);
 
   @Override
   public final Object doPreEvaluated(final VirtualFrame frame,
       final Object[] arguments) {
     return executeEvaluated(frame, arguments[0], arguments[1]);
+  }
+
+  @Override
+  public EagerPrimitiveNode wrapInEagerWrapper(final SSymbol selector,
+      final ExpressionNode[] arguments, final VM vm) {
+    EagerBinaryPrimitiveNode result =
+        new EagerBinaryPrimitiveNode(selector, arguments[0], arguments[1], this);
+    result.initialize(sourceSection);
+    return result;
   }
 }

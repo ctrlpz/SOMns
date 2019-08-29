@@ -1,22 +1,39 @@
 package som.interpreter.actors;
 
-import java.util.ArrayList;
 import java.util.Map;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.ForkJoinPool.ForkJoinWorkerThreadFactory;
 import java.util.concurrent.ForkJoinWorkerThread;
+import java.util.concurrent.RejectedExecutionException;
 
+import com.oracle.truffle.api.CompilerDirectives.CompilationFinal;
 import com.oracle.truffle.api.CompilerDirectives.TruffleBoundary;
-import com.oracle.truffle.api.impl.Accessor;
+import com.oracle.truffle.api.RootCallTarget;
+import com.oracle.truffle.api.Truffle;
+import com.oracle.truffle.api.frame.VirtualFrame;
+import com.oracle.truffle.api.nodes.RootNode;
 
 import som.VM;
-import som.VmSettings;
+import som.interpreter.SomLanguage;
+import som.interpreter.objectstorage.ObjectTransitionSafepoint;
 import som.primitives.ObjectPrims.IsValue;
+import som.vm.Activity;
+import som.vm.VmSettings;
 import som.vmobjects.SAbstractObject;
 import som.vmobjects.SArray.STransferArray;
 import som.vmobjects.SObject;
 import som.vmobjects.SObjectWithClass.SObjectWithoutFields;
 import tools.ObjectBuffer;
+import tools.concurrency.KomposTrace;
+import tools.concurrency.TracingActivityThread;
+import tools.concurrency.TracingActors.ReplayActor;
+import tools.concurrency.TracingActors.TracingActor;
+import tools.debugger.WebDebugger;
+import tools.debugger.entities.ActivityType;
+import tools.replay.actors.ActorExecutionTrace;
+import tools.replay.nodes.TraceContextNode;
+import tools.replay.nodes.TraceContextNodeGen;
+import tools.snapshot.SnapshotBuffer;
 
 
 /**
@@ -29,43 +46,68 @@ import tools.ObjectBuffer;
  * - each actor should only have at max. one active task
  *
  * algorithmic sketch
- *  - enqueue message in actor queue
- *  - execution is done by a special ExecAllMessages task
- *    - this task is submitted to the f/j pool
- *    - once it is executing, it goes to the actor,
- *    - grabs the current mailbox
- *    - and sequentially executes all messages
+ * - enqueue message in actor queue
+ * - execution is done by a special ExecAllMessages task
+ * + - this task is submitted to the f/j pool
+ * + - once it is executing, it goes to the actor,
+ * + - grabs the current mailbox
+ * + - and sequentially executes all messages
  */
-public class Actor {
+public class Actor implements Activity {
 
-  public static Actor createActor() {
-    if (VmSettings.DEBUG_MODE) {
-      return new DebugActor();
+  @CompilationFinal protected static RootCallTarget executorRoot;
+
+  public static void initializeActorSystem(final SomLanguage lang) {
+    ExecutorRootNode root = new ExecutorRootNode(lang);
+    executorRoot = Truffle.getRuntime().createCallTarget(root);
+  }
+
+  public static Actor createActor(final VM vm) {
+    if (VmSettings.REPLAY || VmSettings.KOMPOS_TRACING) {
+      return new ReplayActor(vm);
+    } else if (VmSettings.ACTOR_TRACING) {
+      return new TracingActor(vm);
     } else {
-      return new Actor();
+      return new Actor(vm);
     }
   }
 
-  public static void traceActorsExceptMainOne(final SFarReference actorFarRef) {
-    Thread current = Thread.currentThread();
-    if (current instanceof ActorProcessingThread) {
-      ActorProcessingThread t = (ActorProcessingThread) current;
-      t.createdActors.append(actorFarRef);
-    }
-  }
+  private static final int MAILBOX_EXTENSION_SIZE = 8;
 
-  /** Buffer for incoming messages. */
-  private ObjectBuffer<EventualMessage> mailbox = new ObjectBuffer<>(16);
+  /**
+   * Buffer for incoming messages.
+   * Optimized for cases where the mailbox contains only one message.
+   * Further messages are stored in moreMessages, which is initialized lazily.
+   */
+  protected EventualMessage               firstMessage;
+  protected ObjectBuffer<EventualMessage> mailboxExtension;
 
   /** Flag to indicate whether there is currently a F/J task executing. */
-  private boolean isExecuting;
+  protected boolean isExecuting;
 
   /** Is scheduled on the pool, and executes messages to this actor. */
-  private final ExecAllMessages executor;
+  protected final ExecAllMessages executor;
 
-  protected Actor() {
+  /**
+   * Possible roles for an actor.
+   */
+  public enum Role {
+    SENDER,
+    RECEIVER
+  }
+
+  protected Actor(final VM vm) {
     isExecuting = false;
-    executor = new ExecAllMessages(this);
+    executor = createExecutor(vm);
+  }
+
+  @Override
+  public ActivityType getType() {
+    return ActivityType.ACTOR;
+  }
+
+  protected ExecAllMessages createExecutor(final VM vm) {
+    return new ExecAllMessages(this, vm);
   }
 
   public final Object wrapForUse(final Object o, final Actor owner,
@@ -86,7 +128,8 @@ public class Actor {
       // promise gets resolved
 
       SPromise orgProm = (SPromise) o;
-      // assert orgProm.getOwner() == owner; this can be another actor, which initialized a scheduled eventual send by resolving a promise, that's the promise pipelining...
+      // assert orgProm.getOwner() == owner; this can be another actor, which initialized a
+      // scheduled eventual send by resolving a promise, that's the promise pipelining...
       if (orgProm.getOwner() == this) {
         return orgProm;
       }
@@ -99,7 +142,8 @@ public class Actor {
       } else if (o instanceof STransferArray) {
         return TransferObject.transfer((STransferArray) o, owner, this,
             transferedObjects);
-      } else if (o instanceof SObjectWithoutFields && ((SObjectWithoutFields) o).getSOMClass().isTransferObject()) {
+      } else if (o instanceof SObjectWithoutFields
+          && ((SObjectWithoutFields) o).getSOMClass().isTransferObject()) {
         return TransferObject.transfer((SObjectWithoutFields) o, owner, this,
             transferedObjects);
       } else {
@@ -109,9 +153,12 @@ public class Actor {
     return o;
   }
 
-  protected void logMessageAddedToMailbox(final EventualMessage msg) { }
-  protected void logMessageBeingExecuted(final EventualMessage msg) { }
-  protected void logNoTaskForActor() { }
+  @Override
+  public void setStepToJoin(final boolean val) {
+    throw new UnsupportedOperationException(
+        "Return from activity, and step to join are not supported " +
+            "for event-loop actors. This code should never be reached.");
+  }
 
   /**
    * Send the give message to the actor.
@@ -119,14 +166,51 @@ public class Actor {
    * This is the main method to be used in this API.
    */
   @TruffleBoundary
-  public final synchronized void send(final EventualMessage msg) {
+  public synchronized void send(final EventualMessage msg,
+      final ForkJoinPool actorPool) {
+    doSend(msg, actorPool);
+  }
+
+  public synchronized void sendInitialStartMessage(final EventualMessage msg,
+      final ForkJoinPool pool) {
+    doSend(msg, pool);
+  }
+
+  private void doSend(final EventualMessage msg,
+      final ForkJoinPool actorPool) {
     assert msg.getTarget() == this;
-    mailbox.append(msg);
-    logMessageAddedToMailbox(msg);
+
+    if (firstMessage == null) {
+      firstMessage = msg;
+    } else {
+      appendToMailbox(msg);
+    }
 
     if (!isExecuting) {
       isExecuting = true;
-      executeOnPool();
+      execute(actorPool);
+    }
+  }
+
+  @TruffleBoundary
+  protected void appendToMailbox(final EventualMessage msg) {
+    if (mailboxExtension == null) {
+      mailboxExtension = new ObjectBuffer<>(MAILBOX_EXTENSION_SIZE);
+    }
+    mailboxExtension.append(msg);
+  }
+
+  public static final class ExecutorRootNode extends RootNode {
+
+    private ExecutorRootNode(final SomLanguage language) {
+      super(language);
+    }
+
+    @Override
+    public Object execute(final VirtualFrame frame) {
+      ExecAllMessages executor = (ExecAllMessages) frame.getArguments()[0];
+      executor.doRun();
+      return null;
     }
   }
 
@@ -134,163 +218,175 @@ public class Actor {
    * Is scheduled on the fork/join pool and executes messages for a specific
    * actor.
    */
-  private static final class ExecAllMessages implements Runnable {
-    private final Actor actor;
-    private ObjectBuffer<EventualMessage> current;
+  public static class ExecAllMessages implements Runnable {
+    protected final Actor actor;
+    protected final VM    vm;
 
-    ExecAllMessages(final Actor actor) {
+    protected EventualMessage               firstMessage;
+    protected ObjectBuffer<EventualMessage> mailboxExtension;
+
+    protected int size = 0;
+
+    protected ExecAllMessages(final Actor actor, final VM vm) {
       this.actor = actor;
+      this.vm = vm;
     }
+
+    private static final TraceContextNode tracer = TraceContextNodeGen.create();
 
     @Override
     public void run() {
-      ActorProcessingThread t = (ActorProcessingThread) Thread.currentThread();
-      t.currentlyExecutingActor = actor;
+      assert executorRoot != null : "Actor system not initalized, call to initializeActorSystem(.) missing?";
+      executorRoot.call(this);
+    }
 
-      while (getCurrentMessagesOrCompleteExecution()) {
-        processCurrentMessages(t);
+    void doRun() {
+      ObjectTransitionSafepoint.INSTANCE.register();
+
+      ActorProcessingThread t = (ActorProcessingThread) Thread.currentThread();
+      WebDebugger dbg = null;
+      if (VmSettings.TRUFFLE_DEBUGGER_ENABLED) {
+        dbg = vm.getWebDebugger();
+        assert dbg != null;
       }
 
+      t.currentlyExecutingActor = actor;
+
+      if (VmSettings.ACTOR_TRACING) {
+        ActorExecutionTrace.recordActivityContext((TracingActor) actor, tracer);
+      } else if (VmSettings.KOMPOS_TRACING) {
+        KomposTrace.currentActivity(actor);
+      }
+
+      try {
+        while (getCurrentMessagesOrCompleteExecution()) {
+          processCurrentMessages(t, dbg);
+        }
+      } finally {
+        ObjectTransitionSafepoint.INSTANCE.unregister();
+      }
+
+      if (VmSettings.ACTOR_TRACING || VmSettings.KOMPOS_TRACING) {
+        t.swapTracingBufferIfRequestedUnsync();
+      }
       t.currentlyExecutingActor = null;
     }
 
-    private void processCurrentMessages(final ActorProcessingThread currentThread) {
-      for (EventualMessage msg : current) {
-        actor.logMessageBeingExecuted(msg);
-        msg.execute();
+    protected void processCurrentMessages(final ActorProcessingThread currentThread,
+        final WebDebugger dbg) {
+      assert size > 0;
+
+      if (VmSettings.SNAPSHOTS_ENABLED && !VmSettings.TEST_SNAPSHOTS) {
+        SnapshotBuffer sb = currentThread.getSnapshotBuffer();
+        sb.getRecord().handleTodos(sb);
+        firstMessage.serialize(sb);
       }
-      if (VmSettings.ACTOR_TRACING) {
-        currentThread.processedMessages.append(current);
+      execute(firstMessage, currentThread, dbg);
+
+      if (size > 1) {
+        for (EventualMessage msg : mailboxExtension) {
+          if (VmSettings.SNAPSHOTS_ENABLED && !VmSettings.TEST_SNAPSHOTS) {
+            msg.serialize(currentThread.getSnapshotBuffer());
+          }
+          execute(msg, currentThread, dbg);
+        }
       }
+    }
+
+    private void execute(final EventualMessage msg,
+        final ActorProcessingThread currentThread, final WebDebugger dbg) {
+      currentThread.currentMessage = msg;
+      if (VmSettings.TRUFFLE_DEBUGGER_ENABLED) {
+        TracingActor.handleBreakpointsAndStepping(msg, dbg, actor);
+      }
+
+      msg.execute();
     }
 
     private boolean getCurrentMessagesOrCompleteExecution() {
       synchronized (actor) {
         assert actor.isExecuting;
-        current = actor.mailbox;
-        if (current.isEmpty()) {
+        firstMessage = actor.firstMessage;
+        mailboxExtension = actor.mailboxExtension;
+
+        if (firstMessage == null) {
+          assert mailboxExtension == null;
           // complete execution after all messages are processed
           actor.isExecuting = false;
+          if (VmSettings.KOMPOS_TRACING) {
+            KomposTrace.clearCurrentActivity(actor);
+          }
+          size = 0;
           return false;
+        } else {
+          size = 1 + ((mailboxExtension == null) ? 0 : mailboxExtension.size());
         }
-        actor.mailbox = new ObjectBuffer<>(actor.mailbox.size());
+
+        actor.firstMessage = null;
+        actor.mailboxExtension = null;
       }
+
       return true;
     }
   }
 
   @TruffleBoundary
-  private void executeOnPool() {
-    actorPool.execute(executor);
+  protected void execute(final ForkJoinPool actorPool) {
+    try {
+      actorPool.execute(executor);
+    } catch (RejectedExecutionException e) {
+      throw new ThreadDeath();
+    }
   }
 
-  /**
-   * @return true, if there are no scheduled submissions,
-   *         and no active threads in the pool, false otherwise.
-   *         This is only best effort, it does not look at the actor's
-   *         message queues.
-   */
-  public static boolean isPoolIdle() {
-    return actorPool.isQuiescent();
-  }
+  @Override
+  public void setStepToNextTurn(final boolean val) {}
 
-  public static ObjectBuffer<ObjectBuffer<SFarReference>> getAllCreateActors() {
-    return createdActorsPerThread;
-  }
+  public static final class ActorProcessingThreadFactory
+      implements ForkJoinWorkerThreadFactory {
 
-  public static ObjectBuffer<ObjectBuffer<ObjectBuffer<EventualMessage>>> getAllProcessedMessages() {
-    return messagesProcessedPerThread;
-  }
+    private final VM vm;
 
-  /** Access to this data structure needs to be synchronized. */
-  private static final ObjectBuffer<ObjectBuffer<SFarReference>> createdActorsPerThread =
-      VmSettings.ACTOR_TRACING ? new ObjectBuffer<>(VmSettings.NUM_THREADS) : null;
+    public ActorProcessingThreadFactory(final VM vm) {
+      this.vm = vm;
+    }
 
-  /** Access to this data structure needs to be synchronized. Typically via {@link createdActorsPerThread} */
-  private static final ObjectBuffer<ObjectBuffer<ObjectBuffer<EventualMessage>>> messagesProcessedPerThread =
-      VmSettings.ACTOR_TRACING ? new ObjectBuffer<>(VmSettings.NUM_THREADS) : null;
-
-  private static final class ActorProcessingThreadFactor implements ForkJoinWorkerThreadFactory {
     @Override
     public ForkJoinWorkerThread newThread(final ForkJoinPool pool) {
-      return new ActorProcessingThread(pool);
+      return new ActorProcessingThread(pool, vm);
     }
   }
 
-  public static final class ActorProcessingThread extends ForkJoinWorkerThread {
+  public static final class ActorProcessingThread extends TracingActivityThread {
+
+    public EventualMessage currentMessage;
+
     protected Actor currentlyExecutingActor;
-    protected final ObjectBuffer<SFarReference> createdActors;
-    protected final ObjectBuffer<ObjectBuffer<EventualMessage>> processedMessages;
 
-    protected ActorProcessingThread(final ForkJoinPool pool) {
-      super(pool);
-
-      if (VmSettings.ACTOR_TRACING) {
-        createdActors = new ObjectBuffer<>(128);
-        processedMessages = new ObjectBuffer<>(128);
-
-        // publish the thread local buffer for later querying
-        synchronized (createdActorsPerThread) {
-          createdActorsPerThread.append(createdActors);
-          messagesProcessedPerThread.append(processedMessages);
-        }
-      } else {
-        createdActors = null;
-        processedMessages = null;
-      }
+    protected ActorProcessingThread(final ForkJoinPool pool, final VM vm) {
+      super(pool, vm);
     }
 
     @Override
-    public void run() {
-      Accessor.initializeThreadForUseWithPolglotEngine(VM.getEngine());
+    public Activity getActivity() {
+      if (currentMessage == null) {
+        return null;
+      }
+      return currentMessage.getTarget();
+    }
 
-      super.run();
+    public Actor getCurrentActor() {
+      return currentlyExecutingActor;
     }
   }
 
-  private static final ForkJoinPool actorPool = new ForkJoinPool(
-      VmSettings.NUM_THREADS,
-      new ActorProcessingThreadFactor(), null, true);
+  @Override
+  public String getName() {
+    return toString();
+  }
 
   @Override
   public String toString() {
     return "Actor";
-  }
-
-  public static final class DebugActor extends Actor {
-    // TODO: remove this tracking, the new one should be more efficient
-    private static final ArrayList<Actor> actors = new ArrayList<Actor>();
-
-    private final boolean isMain;
-    private final int id;
-
-    public DebugActor() {
-      super();
-      isMain = false;
-      synchronized (actors) {
-        actors.add(this);
-        id = actors.size() - 1;
-      }
-    }
-
-    @Override
-    protected void logMessageAddedToMailbox(final EventualMessage msg) {
-      VM.errorPrintln(toString() + ": queued task " + msg.toString());
-    }
-
-    @Override
-    protected void logMessageBeingExecuted(final EventualMessage msg) {
-      VM.errorPrintln(toString() + ": execute task " + msg.toString());
-    }
-
-    @Override
-    protected void logNoTaskForActor() {
-      VM.errorPrintln(toString() + ": no task");
-    }
-
-    @Override
-    public String toString() {
-      return "Actor[" + (isMain ? "main" : id) + "]";
-    }
   }
 }

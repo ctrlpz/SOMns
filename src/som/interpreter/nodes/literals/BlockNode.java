@@ -1,49 +1,38 @@
 package som.interpreter.nodes.literals;
 
-import com.oracle.truffle.api.frame.VirtualFrame;
-import com.oracle.truffle.api.source.SourceSection;
+import java.util.ArrayList;
 
+import com.oracle.truffle.api.frame.VirtualFrame;
+import com.oracle.truffle.api.instrumentation.Tag;
+
+import bd.inlining.ScopeAdaptationVisitor;
 import som.compiler.AccessModifier;
 import som.compiler.MethodBuilder;
-import som.compiler.Variable.Local;
-import som.interpreter.InlinerAdaptToEmbeddedOuterContext;
-import som.interpreter.InlinerForLexicallyEmbeddedMethods;
-import som.interpreter.Invokable;
+import som.compiler.Variable;
+import som.compiler.Variable.Argument;
 import som.interpreter.Method;
-import som.interpreter.SplitterForLexicallyEmbeddedCode;
 import som.interpreter.nodes.ExpressionNode;
-import som.vm.Symbols;
-import som.vm.constants.Classes;
 import som.vmobjects.SBlock;
-import som.vmobjects.SClass;
 import som.vmobjects.SInvokable;
-import tools.highlight.Tags.LiteralTag;
+import tools.debugger.Tags.LiteralTag;
+
 
 public class BlockNode extends LiteralNode {
 
   protected final SInvokable blockMethod;
-  protected final SClass  blockClass;
+  protected final boolean    needsAdjustmentOnScopeChange;
 
-  public BlockNode(final SInvokable blockMethod,
-      final SourceSection source) {
-    super(source);
-    this.blockMethod  = blockMethod;
-    switch (blockMethod.getNumberOfArguments()) {
-      case 1: { this.blockClass = Classes.blockClass1; break; }
-      case 2: { this.blockClass = Classes.blockClass2; break; }
-      case 3: { this.blockClass = Classes.blockClass3; break; }
-
-      // we don't support more than 3 arguments
-      default : this.blockClass = Classes.blockClass;
-    }
+  public BlockNode(final SInvokable blockMethod, final boolean needsAdjustmentOnScopeChange) {
+    this.blockMethod = blockMethod;
+    this.needsAdjustmentOnScopeChange = needsAdjustmentOnScopeChange;
   }
 
   @Override
-  protected boolean isTaggedWith(final Class<?> tag) {
+  public boolean hasTag(final Class<? extends Tag> tag) {
     if (LiteralTag.class == tag) {
       return false; // Blocks should not be indicated as literals, looks strange.
     } else {
-      return super.isTaggedWith(tag);
+      return super.hasTag(tag);
     }
   }
 
@@ -51,9 +40,21 @@ public class BlockNode extends LiteralNode {
     return blockMethod;
   }
 
+  public Argument[] getArguments() {
+    Method method = (Method) blockMethod.getInvokable();
+    Variable[] variables = method.getLexicalScope().getVariables();
+    ArrayList<Argument> args = new ArrayList<>();
+    for (Variable v : variables) {
+      if (v instanceof Argument) {
+        args.add((Argument) v);
+      }
+    }
+    return args.toArray(new Argument[0]);
+  }
+
   @Override
   public SBlock executeSBlock(final VirtualFrame frame) {
-    return new SBlock(blockMethod, null, blockClass);
+    return new SBlock(blockMethod, null);
   }
 
   @Override
@@ -62,66 +63,46 @@ public class BlockNode extends LiteralNode {
   }
 
   @Override
-  public void replaceWithIndependentCopyForInlining(final SplitterForLexicallyEmbeddedCode inliner) {
-    Invokable clonedInvokable = blockMethod.getInvokable().
-        cloneWithNewLexicalContext(inliner.getCurrentScope());
-    replaceAdapted(clonedInvokable);
-  }
+  public void replaceAfterScopeChange(final ScopeAdaptationVisitor inliner) {
+    if (!needsAdjustmentOnScopeChange && !inliner.outerScopeChanged()) {
+      return;
+    }
 
-  @Override
-  public void replaceWithLexicallyEmbeddedNode(
-      final InlinerForLexicallyEmbeddedMethods inliner) {
-    Invokable adapted = ((Method) blockMethod.getInvokable()).
-        cloneAndAdaptToEmbeddedOuterContext(inliner);
-    replaceAdapted(adapted);
-  }
-
-  @Override
-  public void replaceWithCopyAdaptedToEmbeddedOuterContext(
-      final InlinerAdaptToEmbeddedOuterContext inliner) {
-    Invokable adapted = ((Method) blockMethod.getInvokable()).
-        cloneAndAdaptToSomeOuterContextBeingEmbedded(inliner);
-    replaceAdapted(adapted);
-  }
-
-  private void replaceAdapted(final Invokable adaptedForContext) {
-    SInvokable adapted = new SInvokable(blockMethod.getSignature(),
-        AccessModifier.BLOCK_METHOD, Symbols.BLOCK_METHOD,
-        adaptedForContext, blockMethod.getEmbeddedBlocks());
-    replace(createNode(adapted));
+    Method blockIvk = (Method) blockMethod.getInvokable();
+    Method adapted = blockIvk.cloneAndAdaptAfterScopeChange(
+        inliner.getScope(blockIvk), inliner.contextLevel + 1, true,
+        inliner.outerScopeChanged());
+    SInvokable adaptedIvk = new SInvokable(blockMethod.getSignature(),
+        AccessModifier.BLOCK_METHOD,
+        adapted, blockMethod.getEmbeddedBlocks());
+    replace(createNode(adaptedIvk));
   }
 
   protected BlockNode createNode(final SInvokable adapted) {
-    return new BlockNode(adapted, getSourceSection());
+    return new BlockNode(adapted, needsAdjustmentOnScopeChange).initialize(sourceSection);
   }
 
   @Override
-  public ExpressionNode inline(final MethodBuilder builder,
-      final Local... blockArguments) {
-    // self doesn't need to be passed
-    assert blockMethod.getNumberOfArguments() - 1 == blockArguments.length;
-    return blockMethod.getInvokable().inline(builder, blockArguments);
+  public ExpressionNode inline(final MethodBuilder builder) {
+    return blockMethod.getInvokable().inline(builder, blockMethod);
   }
 
   public static final class BlockNodeWithContext extends BlockNode {
 
     public BlockNodeWithContext(final SInvokable blockMethod,
-        final SourceSection source) {
-      super(blockMethod, source);
-    }
-
-    public BlockNodeWithContext(final BlockNodeWithContext node) {
-      this(node.blockMethod, node.getSourceSection());
+        final boolean needsAdjustmentOnScopeChange) {
+      super(blockMethod, needsAdjustmentOnScopeChange);
     }
 
     @Override
     public SBlock executeSBlock(final VirtualFrame frame) {
-      return new SBlock(blockMethod, frame.materialize(), blockClass);
+      return new SBlock(blockMethod, frame.materialize());
     }
 
     @Override
     protected BlockNode createNode(final SInvokable adapted) {
-      return new BlockNodeWithContext(adapted, getSourceSection());
+      return new BlockNodeWithContext(adapted, needsAdjustmentOnScopeChange).initialize(
+          sourceSection);
     }
   }
 }

@@ -1,13 +1,17 @@
 package som.interpreter.actors;
 
+import java.util.concurrent.ForkJoinPool;
+
+import com.oracle.truffle.api.dsl.Cached;
+import com.oracle.truffle.api.dsl.Specialization;
+import com.oracle.truffle.api.nodes.ExplodeLoop;
+import com.oracle.truffle.api.nodes.Node;
+import com.oracle.truffle.api.profiles.IntValueProfile;
+
 import som.VM;
 import som.interpreter.actors.EventualMessage.PromiseCallbackMessage;
 import som.interpreter.actors.EventualMessage.PromiseMessage;
 import som.interpreter.actors.EventualMessage.PromiseSendMessage;
-
-import com.oracle.truffle.api.dsl.Cached;
-import com.oracle.truffle.api.dsl.Specialization;
-import com.oracle.truffle.api.nodes.Node;
 
 
 /**
@@ -20,7 +24,13 @@ public abstract class SchedulePromiseHandlerNode extends Node {
     return WrapReferenceNodeGen.create();
   }
 
-  public abstract void execute(final SPromise promise, final PromiseMessage msg, final Actor current);
+  private final ForkJoinPool actorPool;
+
+  protected SchedulePromiseHandlerNode(final ForkJoinPool actorPool) {
+    this.actorPool = actorPool;
+  }
+
+  public abstract void execute(SPromise promise, PromiseMessage msg, Actor current);
 
   @Specialization
   public final void schedule(final SPromise promise,
@@ -30,13 +40,14 @@ public abstract class SchedulePromiseHandlerNode extends Node {
 
     msg.args[PromiseMessage.PROMISE_VALUE_IDX] = wrapper.execute(
         promise.getValueUnsync(), msg.originalSender, current);
-    msg.originalSender.send(msg);
+    msg.originalSender.send(msg, actorPool);
   }
 
   @Specialization
   public final void schedule(final SPromise promise,
       final PromiseSendMessage msg, final Actor current,
-      @Cached("createWrapper()") final WrapReferenceNode rcvrWrapper) {
+      @Cached("createWrapper()") final WrapReferenceNode rcvrWrapper,
+      @Cached("createWrapper()") final WrapReferenceNode argWrapper) {
     VM.thisMethodNeedsToBeOptimized("Still needs to get out the extra cases and the wrapping");
     assert promise.getOwner() != null;
 
@@ -50,7 +61,7 @@ public abstract class SchedulePromiseHandlerNode extends Node {
     if (receiver instanceof SFarReference) {
       // now we are about to send a message to a far reference, so, it
       // is better to just redirect the message back to the current actor
-      finalTarget   = ((SFarReference) receiver).getActor();
+      finalTarget = ((SFarReference) receiver).getActor();
       receiver = ((SFarReference) receiver).getValue();
     }
 
@@ -59,14 +70,22 @@ public abstract class SchedulePromiseHandlerNode extends Node {
     assert !(receiver instanceof SFarReference) : "this should not happen, because we need to redirect messages to the other actor, and normally we just unwrapped this";
     assert !(receiver instanceof SPromise);
 
-    // TODO: break that out into nodes
-    for (int i = 1; i < msg.args.length; i++) {
-      msg.args[i] = finalTarget.wrapForUse(msg.args[i], msg.originalSender, null);
-    }
+    wrapArguments(msg, finalTarget, argWrapper);
 
-    msg.target      = finalTarget; // for sends to far references, we need to adjust the target
+    msg.target = finalTarget; // for sends to far references, we need to adjust the target
     msg.finalSender = current;
 
-    finalTarget.send(msg);
+    finalTarget.send(msg, actorPool);
+  }
+
+  private final IntValueProfile numArgs = IntValueProfile.createIdentityProfile();
+
+  @ExplodeLoop
+  private void wrapArguments(final PromiseSendMessage msg, final Actor finalTarget,
+      final WrapReferenceNode argWrapper) {
+    // TODO: break that out into nodes
+    for (int i = 1; i < numArgs.profile(msg.args.length); i++) {
+      msg.args[i] = argWrapper.execute(msg.args[i], finalTarget, msg.originalSender);
+    }
   }
 }

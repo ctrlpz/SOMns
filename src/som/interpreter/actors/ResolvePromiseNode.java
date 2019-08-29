@@ -2,49 +2,33 @@ package som.interpreter.actors;
 
 import com.oracle.truffle.api.dsl.GenerateNodeFactory;
 import com.oracle.truffle.api.dsl.Specialization;
-import com.oracle.truffle.api.source.SourceSection;
+import com.oracle.truffle.api.frame.VirtualFrame;
 
+import bd.primitives.Primitive;
+import som.interpreter.actors.SPromise.Resolution;
 import som.interpreter.actors.SPromise.SResolver;
-import som.interpreter.nodes.nary.BinaryComplexOperation;
-import som.primitives.Primitive;
 
 
 @GenerateNodeFactory
-@Primitive("actorsResolve:with:")
-public abstract class ResolvePromiseNode extends BinaryComplexOperation {
-  protected ResolvePromiseNode(final SourceSection source) { super(false, source); }
-
-  public abstract Object executeEvaluated(final SResolver receiver, Object argument);
-
-  @Specialization(guards = {"resolver.getPromise() == result"})
-  public SResolver selfResolution(final SResolver resolver, final SPromise result) {
-    return resolver;
-  }
-
-  @Specialization(guards = {"resolver.getPromise() != result"})
-  public SResolver chainedPromise(final SResolver resolver, final SPromise result) {
-    assert resolver.assertNotCompleted();
-    SPromise promise = resolver.getPromise();
-    synchronized (promise) { // TODO: is this really deadlock free?
-      result.addChainedPromise(promise);
-    }
-    return resolver;
-  }
-
-  protected static boolean notAPromise(final Object result) {
-    return !(result instanceof SPromise);
-  }
-
-  @Child protected WrapReferenceNode wrapper = WrapReferenceNodeGen.create();
-
+@Primitive(primitive = "actorsResolve:with:isBPResolver:isBPResolution:")
+public abstract class ResolvePromiseNode extends AbstractPromiseResolutionNode {
+  /**
+   * Normal case, when the promise is resolved with a value that's not a promise.
+   * Here we need to distinguish the explicit promises to ask directly to the promise
+   * if a promise resolution breakpoint was set.
+   */
   @Specialization(guards = {"notAPromise(result)"})
-  public SResolver normalResolution(final SResolver resolver, final Object result) {
+  public SResolver normalResolution(final VirtualFrame frame,
+      final SResolver resolver, final Object result,
+      final boolean haltOnResolver, final boolean haltOnResolution) {
     SPromise promise = resolver.getPromise();
 
-    Actor current = EventualMessage.getActorCurrentMessageIsExecutionOn();
-    Object wrapped = wrapper.execute(result, promise.owner, current);
+    if (haltOnResolver || promise.getHaltOnResolver()) {
+      haltNode.executeEvaluated(frame, result);
+    }
 
-    SResolver.resolveAndTriggerListenersUnsynced(result, wrapped, promise, current);
+    resolvePromise(Resolution.SUCCESSFUL, resolver, result,
+        haltOnResolution || promise.getHaltOnResolution());
     return resolver;
   }
 }

@@ -24,42 +24,43 @@
 
 package som.compiler;
 
-import java.io.File;
-import java.io.FileReader;
-import java.io.IOException;
-
-import com.oracle.truffle.api.CompilerDirectives.TruffleBoundary;
 import com.oracle.truffle.api.source.Source;
 
-import som.VM;
-import som.compiler.Lexer.SourceCoordinate;
-import som.compiler.MixinBuilder.MixinDefinitionError;
-import som.compiler.Parser.ParseError;
+import bd.basic.ProgramDefinitionError;
+import bd.source.SourceCoordinate;
+import bd.tools.structure.StructuralProbe;
+import som.compiler.MixinDefinition.SlotDefinition;
+import som.interpreter.SomLanguage;
+import som.vmobjects.SInvokable;
+import som.vmobjects.SSymbol;
 
-public final class SourcecodeCompiler {
 
-  @TruffleBoundary
-  public static MixinDefinition compileModule(final File file)
-      throws IOException {
-    FileReader stream = new FileReader(file);
+public class SourcecodeCompiler {
 
-    Source source = Source.fromFileName(file.getPath());
-    Parser parser = new Parser(stream, file.length(), source);
+  protected final SomLanguage language;
 
-    MixinDefinition result = compile(parser);
-    VM.reportLoadedSource(source);
-    return result;
+  public SourcecodeCompiler(final SomLanguage language) {
+    this.language = language;
   }
 
-  private static MixinDefinition compile(final Parser parser) {
-    SourceCoordinate coord = parser.getCoordinate();
+  public final SomLanguage getLanguage() {
+    return language;
+  }
 
-    try {
-      MixinBuilder mxnBuilder = parser.moduleDeclaration();
-      return mxnBuilder.assemble(parser.getSource(coord));
-    } catch (ParseError | MixinDefinitionError pe) {
-      VM.errorExit(pe.toString());
-      return null;
-    }
+  public MixinDefinition compileModule(final Source source,
+      final StructuralProbe<SSymbol, MixinDefinition, SInvokable, SlotDefinition, Variable> structuralProbe)
+      throws ProgramDefinitionError {
+    Parser parser = new Parser(source.getCharacters().toString(), source.getLength(), source,
+        structuralProbe, language);
+    return compile(parser, source);
+  }
+
+  protected final MixinDefinition compile(final Parser parser,
+      final Source source) throws ProgramDefinitionError {
+    SourceCoordinate coord = parser.getCoordinate();
+    MixinBuilder mxnBuilder = parser.moduleDeclaration();
+    MixinDefinition result = mxnBuilder.assemble(parser.getSource(coord));
+    language.getVM().reportLoadedSource(source);
+    return result;
   }
 }
