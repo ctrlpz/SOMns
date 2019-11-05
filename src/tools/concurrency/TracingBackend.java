@@ -275,6 +275,7 @@ public class TracingBackend {
         } else if (t.swapTracingBufferIfThreadSuspendedInDebugger()) {
           runningThreads -= 1;
           result[i] = null;
+          KomposTrace.recordSuspendedActivityByDebugger(t);
         } else if (isBlockedInJava(t)) {
           runningThreads -= 1;
           result[i] = null;
