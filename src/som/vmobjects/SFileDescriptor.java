@@ -16,6 +16,7 @@ import som.vm.NotYetImplementedException;
 import som.vm.Symbols;
 import som.vm.constants.Classes;
 import som.vmobjects.SArray.SMutableArray;
+import com.oracle.truffle.api.frame.VirtualFrame;
 
 
 public class SFileDescriptor extends SObjectWithClass {
@@ -64,7 +65,7 @@ public class SFileDescriptor extends SObjectWithClass {
     return new RandomAccessFile(f, accessMode.mode);
   }
 
-  public void closeFile(final ExceptionSignalingNode ioException) {
+  public void closeFile(final VirtualFrame frame, final ExceptionSignalingNode ioException) {
     if (raf == null) {
       return;
     }
@@ -72,7 +73,7 @@ public class SFileDescriptor extends SObjectWithClass {
     try {
       closeFile();
     } catch (IOException e) {
-      ioException.signal(e.getMessage());
+      ioException.signal(frame, e.getMessage());
     }
   }
 
@@ -131,7 +132,7 @@ public class SFileDescriptor extends SObjectWithClass {
     return e.toString();
   }
 
-  public void write(final int nBytes, final long position, final SBlock fail,
+  public void write(final VirtualFrame frame, final int nBytes, final long position, final SBlock fail,
       final BlockDispatchNode dispatchHandler, final ExceptionSignalingNode ioException,
       final BranchProfile errorCases) {
     if (raf == null) {
@@ -153,7 +154,7 @@ public class SFileDescriptor extends SObjectWithClass {
       long val = storage[i];
       if (val <= Byte.MIN_VALUE && Byte.MAX_VALUE <= val) {
         errorCases.enter();
-        ioException.signal(errorMsg(val));
+        ioException.signal(frame, errorMsg(val));
       }
       buff[i] = (byte) val;
     }
@@ -178,11 +179,11 @@ public class SFileDescriptor extends SObjectWithClass {
     raf.write(buff, 0, nBytes);
   }
 
-  public long getFileSize(final ExceptionSignalingNode ioException) {
+  public long getFileSize(final VirtualFrame frame, final ExceptionSignalingNode ioException) {
     try {
       return length();
     } catch (IOException e) {
-      ioException.signal(e.getMessage());
+      ioException.signal(frame, e.getMessage());
     }
     return 0;
   }

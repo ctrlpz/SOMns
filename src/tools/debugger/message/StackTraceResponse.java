@@ -12,6 +12,8 @@ import tools.debugger.entities.EntityType;
 import tools.debugger.frontend.Suspension;
 import tools.debugger.message.Message.Response;
 
+import tools.debugger.frontend.ApplicationThreadStack;
+
 
 @SuppressWarnings("unused")
 public final class StackTraceResponse extends Response {
@@ -89,7 +91,7 @@ public final class StackTraceResponse extends Response {
     }
   }
 
-  private static int getNumRootNodesToSkip(final ArrayList<DebugStackFrame> frames) {
+  private static int getNumRootNodesToSkip(final ArrayList<ApplicationThreadStack.StackFrame> frames) {
     int skip = 0;
     int size = frames.size();
 
@@ -108,7 +110,7 @@ public final class StackTraceResponse extends Response {
 
   public static StackTraceResponse create(final int startFrame, final int levels,
       final Suspension suspension, final int requestId) {
-    ArrayList<DebugStackFrame> frames = suspension.getStackFrames();
+    ArrayList<ApplicationThreadStack.StackFrame> frames = suspension.getStackFrames();
     int skipFrames = suspension.getFrameSkipCount();
 
     if (startFrame > skipFrames) {
@@ -126,8 +128,11 @@ public final class StackTraceResponse extends Response {
 
     for (int i = 0; i < numFrames; i += 1) {
       int frameId = i + skipFrames;
-      assert !(frames.get(
-          frameId).getRootNode() instanceof ReceivedRootNode) : "This should have been skipped in the code above";
+      // TODO: remove the below assert once we are satisfied things work. because now we can
+      // have received root nodes in the stack trace
+      // assert !(frames.get(
+      // frameId).root instanceof ReceivedRootNode) : "This should have been skipped in the
+      // code above";
       StackFrame f = createFrame(suspension, frameId, frames.get(frameId));
       arr[i] = f;
     }
@@ -139,15 +144,11 @@ public final class StackTraceResponse extends Response {
   }
 
   private static StackFrame createFrame(final Suspension suspension,
-      final int frameId, final DebugStackFrame frame) {
+      final int frameId, final ApplicationThreadStack.StackFrame frame) {
     long id = suspension.getGlobalId(frameId);
+    String name = frame.name;
+    SourceSection ss = frame.section;
 
-    String name = frame.getName();
-    if (name == null) {
-      name = "vm (internal)";
-    }
-
-    SourceSection ss = frame.getSourceSection();
     String sourceUri;
     int line;
     int column;
