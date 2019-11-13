@@ -155,7 +155,6 @@ public final class SystemPrims {
     }
 
     @Specialization
-    @TruffleBoundary
     public final Object doSObject(final VirtualFrame frame, final String moduleName) {
       return loadModule(frame, vm, moduleName, ioException);
     }
@@ -175,7 +174,6 @@ public final class SystemPrims {
     }
 
     @Specialization
-    @TruffleBoundary
     public final Object load(final VirtualFrame frame, final String filename, final SObjectWithClass moduleObj) {
       String path = moduleObj.getSOMClass().getMixinDefinition().getSourceSection().getSource()
                              .getPath();
@@ -296,7 +294,7 @@ public final class SystemPrims {
 
         StringBuilder sb = new StringBuilder();
         for (int i = method.size() - 1; i >= skipDnuFrames; i--) {
-          sb.append(String.format("\t%1$-" + (maxLengthMethod[0] + 4) + "s",
+          sb.append(String.format("\t%1$-" + (maxLengthMethod + 4) + "s",
                   method.get(i)));
           sb.append(location.get(i));
           sb.append('\n');

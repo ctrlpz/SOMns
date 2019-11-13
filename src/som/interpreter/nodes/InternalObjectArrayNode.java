@@ -11,7 +11,7 @@ import tools.asyncstacktraces.ShadowStackEntryLoad;
 
 
 @NodeInfo(cost = NodeCost.NONE)
-public final class InternalObjectArrayNode extends ExprWithTagsNode {
+public class InternalObjectArrayNode extends ExprWithTagsNode {
   @Children protected final ExpressionNode[] expressions;
   @Child protected ShadowStackEntryLoad shadowStackEntryLoad = ShadowStackEntryLoad.create();
 

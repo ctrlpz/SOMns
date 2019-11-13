@@ -36,7 +36,6 @@ import tools.asyncstacktraces.ShadowStackEntryLoad;
 
 public abstract class BlockPrims {
   public static final int CHAIN_LENGTH = VmSettings.DYNAMIC_METRICS ? 100 : 6;
-  @Child protected ShadowStackEntryLoad shadowStackEntryLoad = ShadowStackEntryLoad.create();
 
   public static final DirectCallNode createDirectCallNode(final SBlock receiver,
       final SOMNode node) {
@@ -65,6 +64,8 @@ public abstract class BlockPrims {
   public abstract static class ValueNonePrim extends UnaryExpressionNode {
 
     protected @Child ExceptionSignalingNode argumentError;
+
+    @Child protected ShadowStackEntryLoad shadowStackEntryLoad = ShadowStackEntryLoad.create();
 
     @Override
     public ExpressionNode initialize(final SourceSection sourceSection,

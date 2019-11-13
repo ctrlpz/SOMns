@@ -6,7 +6,7 @@ import com.oracle.truffle.api.nodes.Node;
 import som.interpreter.SArguments;
 import som.vm.VmSettings;
 
-public class ShadowStackEntryLoad extends Node {
+public abstract class ShadowStackEntryLoad extends Node {
     public static final int NUM_SHADOW_STACK_ENTRIES = 6;
 
     public static final boolean ANALYSIS     = false;

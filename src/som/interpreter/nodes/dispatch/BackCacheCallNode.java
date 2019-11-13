@@ -12,7 +12,7 @@ import som.vm.VmSettings;
 import tools.asyncstacktraces.ShadowStackEntry;
 import tools.asyncstacktraces.ShadowStackEntryLoad;
 
-public class BackCacheCallNode {
+public interface BackCacheCallNode {
 
     static void initializeUniqueCaller(final RootCallTarget methodCallTarget,
                                        final BackCacheCallNode node) {

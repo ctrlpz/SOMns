@@ -22,7 +22,7 @@ import tools.asyncstacktraces.ShadowStackEntryLoad;
  * Private methods are special, they are linked unconditionally to the call site.
  * Thus, we don't need to check at the dispatch whether they apply or not.
  */
-public final class LexicallyBoundDispatchNode extends AbstractDispatchNode implements BackCacheCallNode {
+public abstract class LexicallyBoundDispatchNode extends AbstractDispatchNode implements BackCacheCallNode {
 
   protected final Assumption          stillUniqueCaller;
   @Child private DirectCallNode       cachedMethod;

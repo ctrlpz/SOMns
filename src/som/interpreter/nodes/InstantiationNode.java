@@ -128,7 +128,7 @@ public abstract class InstantiationNode extends Node {
         final InstantiationNode inst) {
       SClass classObj =
           new SClass(outerObj, instantiateMetaclassClass(factory, outerObj), frame);
-      return signalExceptionsIfFaultFoundElseReturnClassObject(outerObj, factory, classObj,
+      return signalExceptionsIfFaultFoundElseReturnClassObject(frame, outerObj, factory, classObj,
           inst.notAValue, inst.cannotBeValues);
     }
 

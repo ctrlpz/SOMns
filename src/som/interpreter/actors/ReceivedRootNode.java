@@ -18,7 +18,6 @@ import tools.replay.nodes.TraceMessageNode;
 import tools.replay.nodes.TraceMessageNodeGen;
 import tools.snapshot.nodes.MessageSerializationNode;
 import tools.snapshot.nodes.MessageSerializationNodeFactory;
-import som.interpreter.actors.ResolvePromiseNodeFactory.ResolveNodeGen;
 
 
 public abstract class ReceivedRootNode extends RootNode {
