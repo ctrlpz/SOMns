@@ -328,6 +328,7 @@
           <compilerarg line="-s ${src_gen.dir}" />
           <compilerarg line="-XDignore.symbol.file" />
           <compilerarg line="-Xlint:all" />
+            <compilerarg line="-Xmaxerrs 1000" />
           <compilerarg line="--release 8" if:true="${is.atLeastJava9}" />
         </javac>
         <javac includeantruntime="false" srcdir="${src_gen.dir}" destdir="${classes.dir}" debug="true">
