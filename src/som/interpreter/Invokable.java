@@ -47,6 +47,10 @@ public abstract class Invokable extends RootNode {
     return isAtomic;
   }
 
+  public ExpressionNode getBodyNode() {
+    return expressionOrSequence;
+  }
+
   @Override
   public final Object execute(final VirtualFrame frame) {
     return expressionOrSequence.executeGeneric(frame);

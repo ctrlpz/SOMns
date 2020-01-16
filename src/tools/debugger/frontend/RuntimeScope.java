@@ -4,13 +4,14 @@ import com.oracle.truffle.api.frame.MaterializedFrame;
 
 import som.compiler.Variable;
 import som.interpreter.LexicalScope.MethodScope;
+import com.oracle.truffle.api.frame.Frame;
 
 
 public class RuntimeScope {
-  private final MaterializedFrame frame;
+  private final Frame       frame;
   private final MethodScope       lexicalScope;
 
-  public RuntimeScope(final MaterializedFrame frame, final MethodScope lexcialScope) {
+  public RuntimeScope(final Frame frame, final MethodScope lexcialScope) {
     this.frame = frame;
     this.lexicalScope = lexcialScope;
     assert frame.getFrameDescriptor() == lexcialScope.getFrameDescriptor();

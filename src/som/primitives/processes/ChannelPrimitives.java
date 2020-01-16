@@ -320,7 +320,7 @@ public abstract class ChannelPrimitives {
     public final Object write(final VirtualFrame frame, final SChannelOutput out,
         final Object val) {
       if (!isVal.executeBoolean(frame, val)) {
-        notAValue.signal(val);
+        notAValue.signal(frame, val);
       }
       try {
         out.writeAndSuspendReader(val, afterRead.executeShouldHalt(), traceWrite);
