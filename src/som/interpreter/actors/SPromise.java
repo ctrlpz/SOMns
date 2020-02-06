@@ -76,7 +76,7 @@ public class SPromise extends SObjectWithClass {
   /**
    * Trigger breakpoint at the point where the promise is resolved with a value.
    */
-  private final boolean haltOnResolver;
+  private boolean haltOnResolver;
 
   /**
    * Trigger a breakpoint when executing a resolution callback.
@@ -567,5 +567,9 @@ public class SPromise extends SObjectWithClass {
 
   public void enableHaltOnResolution() {
     haltOnResolution = true;
+  }
+
+  public void enableHaltOnResolver() {
+    haltOnResolver = true;
   }
 }
