@@ -123,7 +123,7 @@ public abstract class ReceivedRootNode extends RootNode {
         this.error = insert(new NullResolver());
       } else {
         this.error = insert(
-                ErrorPromiseNodeFactory.create(null, null, null, null, null).initialize(vm));
+                ErrorNodeGen.create(null, null, null, null, null).initialize(vm));
       }
     }
 
@@ -139,6 +139,7 @@ public abstract class ReceivedRootNode extends RootNode {
    * Promise resolver for the case that the actual promise has been optimized out.
    */
   public final class NullResolver extends AbstractPromiseResolutionNode {
+
     @Override
     public Object executeEvaluated(final VirtualFrame frame,
         final SResolver receiver, final Object argument, final Object maybeEntry,
