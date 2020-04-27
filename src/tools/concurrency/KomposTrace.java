@@ -81,7 +81,7 @@ public class KomposTrace {
 
     assert current instanceof TracingActivityThread;
     TracingActivityThread t = (TracingActivityThread) current;
-
+    System.out.println("Resolved value: " + value);
     ((KomposTraceBuffer) t.getBuffer()).recordSendOperation(SendOp.PROMISE_RESOLUTION, 0,
         promiseId,
         t.getActivity(), (short) 0, 0, null);
@@ -348,7 +348,7 @@ public class KomposTrace {
 
       final int start = position;
       put(op.getId());
-      putLong(entityId);
+      putLong(entityId); /*put something in the trace*/
       putLong(targetId);
       putLong(targetActorId);
       putShort(symbolId);
