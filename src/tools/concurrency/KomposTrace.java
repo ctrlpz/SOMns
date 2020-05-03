@@ -13,9 +13,7 @@ import som.vm.Activity;
 import som.vm.ObjectSystem;
 import som.vm.Symbols;
 import som.vm.VmSettings;
-import som.vmobjects.SArray;
-import som.vmobjects.SInvokable;
-import som.vmobjects.SSymbol;
+import som.vmobjects.*;
 import tools.debugger.PrimitiveCallOrigin;
 import tools.debugger.entities.ActivityType;
 import tools.debugger.entities.DynamicScopeType;
@@ -99,9 +97,11 @@ public class KomposTrace {
     Thread current = Thread.currentThread();
     assert current instanceof TracingActivityThread;
     TracingActivityThread t = (TracingActivityThread) current;
+    String error = Types.toDebuggerString(value);
+    byte[] errorBytes = error.getBytes();
     ((KomposTraceBuffer) t.getBuffer()).recordSendOperation(SendOp.PROMISE_RESOLUTION, 0,
         promiseId,
-        t.getActivity(), (short) 0, 0, null, null);
+        t.getActivity(), (short) 0, 0, null, errorBytes);
     t.erroredPromises++;
   }
 

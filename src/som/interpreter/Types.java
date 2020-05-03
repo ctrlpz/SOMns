@@ -127,6 +127,21 @@ public class Types {
     return "a " + getClassOf(obj).getName().getString();
   }
 
+  public enum TYPES {
+    BOOLEAN,
+    STRING,
+    NIL,
+    OBJECT,
+    INTEGER,
+    LONG,
+    DOUBLE,
+    DS //datastructure
+  }
+
+  public static TYPES getType(Object value){
+
+  }
+
   public static int getNumberOfNamedSlots(final Object obj) {
     CompilerAsserts.neverPartOfCompilation();
 
