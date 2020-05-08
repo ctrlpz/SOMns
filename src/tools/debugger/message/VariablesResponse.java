@@ -3,6 +3,8 @@ package tools.debugger.message;
 import java.lang.reflect.Array;
 import java.util.ArrayList;
 
+import com.oracle.truffle.api.source.Source;
+import com.oracle.truffle.api.source.SourceSection;
 import org.graalvm.collections.MapCursor;
 
 import som.compiler.MixinDefinition.SlotDefinition;
@@ -37,19 +39,37 @@ public final class VariablesResponse extends Response {
     private final String value;
 
     private final long variablesReference;
-    private final int  namedVariables;
-    private final int  indexedVariables;
+    private final int namedVariables;
+    private final int indexedVariables;
+
+    private final int line;
+    private final int col;
+    private final int charlen;
+
 
     Variable(final String name, final String value, final long globalVarRef,
-        final int named, final int indexed) {
+             final int named, final int indexed, SourceSection source){
       assert TraceData.isWithinJSIntValueRange(globalVarRef);
       this.name = name;
       this.value = value;
       this.variablesReference = globalVarRef;
       this.namedVariables = named;
       this.indexedVariables = indexed;
+
+      if(source == null){
+        System.out.println(0);
+        this.line = 0;
+        this.col = 0;
+        this.charlen = 0;
+      } else {
+        this.line = source.getStartLine();
+        this.col = source.getStartColumn();
+        this.charlen = source.getCharLength();
+      }
+
+      }
     }
-  }
+
 
   public static VariablesResponse create(final long globalVarRef, final int requestId,
       final Suspension suspension, final FilterType filter, final Long start,
@@ -76,8 +96,9 @@ public final class VariablesResponse extends Response {
       MapCursor<SlotDefinition, StorageLocation> e =
           o.getObjectLayout().getStorageLocations().getEntries();
       while (e.advance()) {
+        System.out.println("Source variable: " + e.getKey().getSourceSection());
         results.add(createVariable(e.getKey().getName().getString(), e.getValue().read(o),
-            suspension));
+            suspension, e.getKey().getSourceSection()));
       }
     } else {
       int startIdx = start == null ? 0 : (int) (long) start;
@@ -88,7 +109,7 @@ public final class VariablesResponse extends Response {
       if (storage instanceof Integer) {
         long numItems = count == null ? (int) storage : count;
         for (int i = startIdx; i < numItems; i += 1) {
-          results.add(createVariable("" + (i + 1), Nil.nilObject, suspension));
+          results.add(createVariable("" + (i + 1), Nil.nilObject, suspension, null));
         }
       } else {
         if (storage instanceof PartiallyEmptyArray) {
@@ -97,7 +118,7 @@ public final class VariablesResponse extends Response {
 
         long numItems = count == null ? Array.getLength(storage) : count;
         for (int i = startIdx; i < numItems; i += 1) {
-          results.add(createVariable("" + (i + 1), Array.get(storage, i), suspension));
+          results.add(createVariable("" + (i + 1), Array.get(storage, i), suspension, null));
         }
       }
     }
@@ -110,14 +131,15 @@ public final class VariablesResponse extends Response {
     for (som.compiler.Variable v : scope.getVariables()) {
       if (!v.isInternal()) {
         Object val = scope.read(v);
-        results.add(createVariable(v.name.getString(), val, suspension));
+        System.out.println("Source variable: " + v.source);
+        results.add(createVariable(v.name.getString(), val, suspension, v.source));
       }
     }
     return results;
   }
 
   private static Variable createVariable(final String name, final Object val,
-      final Suspension suspension) {
+                                         final Suspension suspension, final SourceSection source) {
     int named = Types.getNumberOfNamedSlots(val);
     int indexed = Types.getNumberOfIndexedSlots(val);
     long id;
@@ -126,6 +148,6 @@ public final class VariablesResponse extends Response {
     } else {
       id = 0;
     }
-    return new Variable(name, Types.toDebuggerString(val), id, named, indexed);
+    return new Variable(name, Types.toDebuggerString(val), id, named, indexed, source);
   }
 }

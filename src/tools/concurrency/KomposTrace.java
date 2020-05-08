@@ -1,9 +1,11 @@
 package tools.concurrency;
 
 import com.oracle.truffle.api.CompilerDirectives.TruffleBoundary;
+import com.oracle.truffle.api.source.Source;
 import com.oracle.truffle.api.source.SourceSection;
 
 import bd.source.SourceCoordinate;
+//import com.sun.deploy.trace.Trace;
 import som.interpreter.Types;
 import som.interpreter.actors.Actor;
 import som.interpreter.actors.SPromise;
@@ -14,15 +16,10 @@ import som.vm.ObjectSystem;
 import som.vm.Symbols;
 import som.vm.VmSettings;
 import som.vmobjects.*;
+//import sun.jvm.hotspot.oops.Mark;
+import tools.TraceData;
 import tools.debugger.PrimitiveCallOrigin;
-import tools.debugger.entities.ActivityType;
-import tools.debugger.entities.DynamicScopeType;
-import tools.debugger.entities.Implementation;
-import tools.debugger.entities.PassiveEntityType;
-import tools.debugger.entities.ReceiveOp;
-import tools.debugger.entities.SendOp;
-
-
+import tools.debugger.entities.*;
 
 
 public class KomposTrace {
@@ -145,6 +142,11 @@ public class KomposTrace {
 
   public static void recordSuspendedActivityByDebugger(TracingActivityThread t) {
     ((KomposTraceBuffer) t.getBuffer()).recordPausedActivity(t.getActivity());
+  }
+
+  public static void assignment(short symbolId, SourceSection variable, SourceSection assignment){
+    TracingActivityThread t = getThread();
+    ((KomposTraceBuffer) t.getBuffer()).recordAssignment(symbolId, variable, assignment, t.getActivity());
   }
 
   public static class KomposTraceBuffer extends TraceBuffer {
@@ -373,6 +375,18 @@ public class KomposTrace {
       assert position == start + requiredSpace;
     }
 
+    public void recordAssignment(final short symbolId, final SourceSection variableId,final SourceSection assignmentPlace, final Activity current){
+      int requiredSpace = 2 * TraceData.SOURCE_SECTION_SIZE + 1 + 2;
+      ensureSufficientSpace(requiredSpace, current);
+      final int start = position;
+      put(Marker.ASSIGNMENT);
+      putShort(symbolId);
+      writeSourceSection(variableId);
+      writeSourceSection(assignmentPlace);
+      assert position == start + requiredSpace;
+
+    }
+
     public static class SyncedKomposTraceBuffer extends KomposTraceBuffer {
 
       protected SyncedKomposTraceBuffer(final long implThreadId) {
@@ -381,45 +395,51 @@ public class KomposTrace {
 
       @Override
       public synchronized void recordActivityCreation(final ActivityType entity,
-          final long activityId, final short symbolId,
-          final SourceSection section, final Activity current) {
+                                                      final long activityId, final short symbolId,
+                                                      final SourceSection section, final Activity current) {
         super.recordActivityCreation(entity, activityId, symbolId, section, current);
       }
 
       @Override
       public synchronized void recordScopeStart(final DynamicScopeType entity,
-          final long scopeId, final SourceSection section, final Activity current) {
+                                                final long scopeId, final SourceSection section, final Activity current) {
         super.recordScopeStart(entity, scopeId, section, current);
       }
 
       @Override
       public synchronized void recordScopeEnd(final DynamicScopeType entity,
-          final Activity current) {
+                                              final Activity current) {
         super.recordScopeEnd(entity, current);
       }
 
       @Override
       public synchronized void recordPassiveEntityCreation(final PassiveEntityType entity,
-          final long entityId, final SourceSection section, final Activity current) {
+                                                           final long entityId, final SourceSection section, final Activity current) {
         super.recordPassiveEntityCreation(entity, entityId, section, current);
       }
 
       @Override
       public synchronized void recordActivityCompletion(final ActivityType entity,
-          final Activity current) {
+                                                        final Activity current) {
         super.recordActivityCompletion(entity, current);
       }
 
       @Override
       public synchronized void recordReceiveOperation(final ReceiveOp op,
-          final long sourceId, final Activity current) {
+                                                      final long sourceId, final Activity current) {
         super.recordReceiveOperation(op, sourceId, current);
       }
 
       @Override
       public synchronized void recordSendOperation(final SendOp op,
-          final long entityId, final long targetId, final Activity current, final short symbol, final long targetActorId, final SourceSection section,byte[] value) {
+                                                   final long entityId, final long targetId, final Activity current, final short symbol, final long targetActorId, final SourceSection section, byte[] value) {
         super.recordSendOperation(op, entityId, targetId, current, symbol, targetActorId, section, value);
+      }
+
+
+      @Override
+      public synchronized void recordAssignment(final short symbolId, final SourceSection variableId, SourceSection assignmentPlace, final Activity current) {
+        super.recordAssignment(symbolId, variableId, assignmentPlace, current);
       }
     }
   }

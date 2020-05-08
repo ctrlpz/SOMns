@@ -25,7 +25,9 @@ import som.interpreter.nodes.LocalVariableNodeFactory.LocalVariableWriteNodeGen;
 import som.interpreter.nodes.NonLocalVariableNodeFactory.NonLocalVariableReadNodeGen;
 import som.interpreter.nodes.NonLocalVariableNodeFactory.NonLocalVariableWriteNodeGen;
 import som.vm.Symbols;
+import som.vm.VmSettings;
 import som.vmobjects.SSymbol;
+import tools.concurrency.TracingActivityThread;
 
 
 /**
@@ -51,11 +53,13 @@ public abstract class Variable implements bd.inlining.Variable<ExpressionNode> {
 
   public final SSymbol       name;
   public final SourceSection source;
-
+  public final long id;
   Variable(final SSymbol name, final SourceSection source) {
     this.name = name;
     this.source = source;
+    this.id = TracingActivityThread.newEntityId();
   }
+
 
   /** Gets the name including lexical location. */
   public final SSymbol getQualifiedName() {
@@ -225,6 +229,7 @@ public abstract class Variable implements bd.inlining.Variable<ExpressionNode> {
         final SourceSection source) {
       transferToInterpreterAndInvalidate("Variable.getWriteNode");
       ExpressionNode node;
+      System.out.println("source: " + source);
       if (contextLevel == 0) {
         node = LocalVariableWriteNodeGen.create(this, valueExpr);
       } else {

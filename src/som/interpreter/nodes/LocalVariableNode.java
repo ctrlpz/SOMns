@@ -15,9 +15,13 @@ import som.compiler.Variable.Local;
 import som.interpreter.nodes.nary.ExprWithTagsNode;
 import som.vm.constants.Nil;
 import som.vmobjects.SSymbol;
+import tools.concurrency.RecordAssignment;
 import tools.debugger.Tags.LocalVariableTag;
 import tools.dym.Tags.LocalVarRead;
 import tools.dym.Tags.LocalVarWrite;
+
+/*try*/
+import som.vm.VmSettings;
 
 
 public abstract class LocalVariableNode extends ExprWithTagsNode
@@ -133,6 +137,8 @@ public abstract class LocalVariableNode extends ExprWithTagsNode
   @NodeChild(value = "exp", type = ExpressionNode.class)
   public abstract static class LocalVariableWriteNode extends LocalVariableNode {
 
+
+
     public LocalVariableWriteNode(final Local variable) {
       super(variable);
     }
@@ -146,18 +152,22 @@ public abstract class LocalVariableNode extends ExprWithTagsNode
     @Specialization(guards = "isBoolKind(expValue)")
     public final boolean writeBoolean(final VirtualFrame frame, final boolean expValue) {
       frame.setBoolean(slot, expValue);
+      /*for question "why is value of variable ... ... ?*/
+      RecordAssignment.recordAssignment(frame, expValue, sourceSection, var);
       return expValue;
     }
 
     @Specialization(guards = "isLongKind(expValue)")
     public final long writeLong(final VirtualFrame frame, final long expValue) {
       frame.setLong(slot, expValue);
+      RecordAssignment.recordAssignment(frame, expValue, sourceSection, var);
       return expValue;
     }
 
     @Specialization(guards = "isDoubleKind(expValue)")
     public final double writeDouble(final VirtualFrame frame, final double expValue) {
       frame.setDouble(slot, expValue);
+      RecordAssignment.recordAssignment(frame, expValue, sourceSection, var);
       return expValue;
     }
 
@@ -165,6 +175,8 @@ public abstract class LocalVariableNode extends ExprWithTagsNode
     public final Object writeGeneric(final VirtualFrame frame, final Object expValue) {
       descriptor.setFrameSlotKind(slot, FrameSlotKind.Object);
       frame.setObject(slot, expValue);
+      RecordAssignment.recordAssignment(frame, expValue, sourceSection, var);
+
       return expValue;
     }
 

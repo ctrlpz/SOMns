@@ -138,9 +138,6 @@ public class Types {
     DS //datastructure
   }
 
-  public static TYPES getType(Object value){
-
-  }
 
   public static int getNumberOfNamedSlots(final Object obj) {
     CompilerAsserts.neverPartOfCompilation();
