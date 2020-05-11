@@ -26,6 +26,7 @@ public final class VariablesResponse extends Response {
   private final Variable[] variables;
   private final long       variablesReference;
 
+
   private VariablesResponse(final int requestId, final long globalVarRef,
       final Variable[] variables) {
     super(requestId);
@@ -131,7 +132,6 @@ public final class VariablesResponse extends Response {
     for (som.compiler.Variable v : scope.getVariables()) {
       if (!v.isInternal()) {
         Object val = scope.read(v);
-        System.out.println("Source variable: " + v.source);
         results.add(createVariable(v.name.getString(), val, suspension, v.source));
       }
     }

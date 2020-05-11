@@ -144,9 +144,11 @@ public class KomposTrace {
     ((KomposTraceBuffer) t.getBuffer()).recordPausedActivity(t.getActivity());
   }
 
-  public static void assignment(short symbolId, SourceSection variable, SourceSection assignment){
+  public static void assignment(SourceSection variable, SourceSection assignment, String value){
     TracingActivityThread t = getThread();
-    ((KomposTraceBuffer) t.getBuffer()).recordAssignment(symbolId, variable, assignment, t.getActivity());
+    byte[] valueBytes = value.getBytes();
+    ((KomposTraceBuffer) t.getBuffer()).recordAssignment(variable, assignment, t.getActivity(), valueBytes);
+
   }
 
   public static class KomposTraceBuffer extends TraceBuffer {
@@ -375,14 +377,18 @@ public class KomposTrace {
       assert position == start + requiredSpace;
     }
 
-    public void recordAssignment(final short symbolId, final SourceSection variableId,final SourceSection assignmentPlace, final Activity current){
-      int requiredSpace = 2 * TraceData.SOURCE_SECTION_SIZE + 1 + 2;
+    public void recordAssignment( final SourceSection variableId,final SourceSection assignmentPlace, final Activity current,byte[] newValue){
+      int requiredSpace = 2 * TraceData.SOURCE_SECTION_SIZE + 1 + newValue.length + 4;
       ensureSufficientSpace(requiredSpace, current);
+
       final int start = position;
       put(Marker.ASSIGNMENT);
-      putShort(symbolId);
       writeSourceSection(variableId);
       writeSourceSection(assignmentPlace);
+      putInt(newValue.length);
+      for(byte b : newValue){
+        put(b);
+      }
       assert position == start + requiredSpace;
 
     }
@@ -438,8 +444,8 @@ public class KomposTrace {
 
 
       @Override
-      public synchronized void recordAssignment(final short symbolId, final SourceSection variableId, SourceSection assignmentPlace, final Activity current) {
-        super.recordAssignment(symbolId, variableId, assignmentPlace, current);
+      public synchronized void recordAssignment( final SourceSection variableId, SourceSection assignmentPlace, final Activity current, byte[] newValue) {
+        super.recordAssignment(variableId, assignmentPlace, current, newValue);
       }
     }
   }

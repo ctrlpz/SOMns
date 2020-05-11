@@ -53,11 +53,11 @@ public abstract class Variable implements bd.inlining.Variable<ExpressionNode> {
 
   public final SSymbol       name;
   public final SourceSection source;
-  public final long id;
+
   Variable(final SSymbol name, final SourceSection source) {
     this.name = name;
     this.source = source;
-    this.id = TracingActivityThread.newEntityId();
+
   }
 
 
