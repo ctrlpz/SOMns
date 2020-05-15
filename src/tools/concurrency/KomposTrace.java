@@ -144,10 +144,10 @@ public class KomposTrace {
     ((KomposTraceBuffer) t.getBuffer()).recordPausedActivity(t.getActivity());
   }
 
-  public static void assignment(SourceSection variable, SourceSection assignment, String value){
+  public static void assignment(RecordAssignment.AssignmentTypes type, SourceSection variable, SourceSection assignment, String value){
     TracingActivityThread t = getThread();
     byte[] valueBytes = value.getBytes();
-    ((KomposTraceBuffer) t.getBuffer()).recordAssignment(variable, assignment, t.getActivity(), valueBytes);
+    ((KomposTraceBuffer) t.getBuffer()).recordAssignment(type, variable, assignment, t.getActivity(), valueBytes);
 
   }
 
@@ -377,12 +377,12 @@ public class KomposTrace {
       assert position == start + requiredSpace;
     }
 
-    public void recordAssignment( final SourceSection variableId,final SourceSection assignmentPlace, final Activity current,byte[] newValue){
+    public void recordAssignment(final RecordAssignment.AssignmentTypes type,  final SourceSection variableId, final SourceSection assignmentPlace, final Activity current, byte[] newValue){
       int requiredSpace = 2 * TraceData.SOURCE_SECTION_SIZE + 1 + newValue.length + 4;
       ensureSufficientSpace(requiredSpace, current);
 
       final int start = position;
-      put(Marker.ASSIGNMENT);
+      put(type.getId());
       writeSourceSection(variableId);
       writeSourceSection(assignmentPlace);
       putInt(newValue.length);
@@ -444,8 +444,8 @@ public class KomposTrace {
 
 
       @Override
-      public synchronized void recordAssignment( final SourceSection variableId, SourceSection assignmentPlace, final Activity current, byte[] newValue) {
-        super.recordAssignment(variableId, assignmentPlace, current, newValue);
+      public synchronized void recordAssignment(final RecordAssignment.AssignmentTypes type, final SourceSection variableId, SourceSection assignmentPlace, final Activity current, byte[] newValue) {
+        super.recordAssignment(type, variableId, assignmentPlace, current, newValue);
       }
     }
   }

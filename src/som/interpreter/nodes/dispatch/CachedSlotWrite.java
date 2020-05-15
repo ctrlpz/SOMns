@@ -16,6 +16,7 @@ import som.interpreter.objectstorage.StorageAccessor.AbstractObjectAccessor;
 import som.interpreter.objectstorage.StorageAccessor.AbstractPrimitiveAccessor;
 import som.vmobjects.SObject;
 import som.vmobjects.SObject.SMutableObject;
+import tools.concurrency.RecordAssignment;
 import tools.dym.Tags.FieldWrite;
 
 
@@ -138,6 +139,8 @@ public abstract class CachedSlotWrite extends AbstractDispatchNode {
     @Override
     public void doWrite(final SObject obj, final Object value) {
       if (value instanceof Long) {
+        System.out.println("-slot "+this.slot.getName() + " location "+this.slot.getSourceSection().toString() +" value "+value.toString() + " sourceAssignment "+this.getSourceSection().toString() + " obj "+obj.getSOMClass());
+        RecordAssignment.recordGlobalAssignment(value, this.getSourceSection(),slot);
         accessor.write(obj, (long) value);
         accessor.markPrimAsSet(obj, primMarkProfile);
       } else {
@@ -158,6 +161,8 @@ public abstract class CachedSlotWrite extends AbstractDispatchNode {
     @Override
     public void doWrite(final SObject obj, final Object value) {
       if (value instanceof Long) {
+        System.out.println("-slot "+this.slot.getName() + " location "+this.slot.getSourceSection().toString() +" value "+value.toString() + " sourceAssignment "+this.getSourceSection().toString() + " obj "+obj.getSOMClass());
+        RecordAssignment.recordGlobalAssignment(value, this.getSourceSection(),slot);
         accessor.write(obj, (long) value);
         if (!accessor.isPrimitiveSet(obj, primMarkProfile)) {
           CompilerDirectives.transferToInterpreterAndInvalidate();
@@ -184,6 +189,8 @@ public abstract class CachedSlotWrite extends AbstractDispatchNode {
     @Override
     public void doWrite(final SObject obj, final Object value) {
       if (value instanceof Double) {
+        System.out.println("-slot "+this.slot.getName() + " location "+this.slot.getSourceSection().toString() +" value "+value.toString() + " sourceAssignment "+this.getSourceSection().toString() + " obj "+obj.getSOMClass());
+        RecordAssignment.recordGlobalAssignment(value, this.getSourceSection(),slot);
         accessor.write(obj, (double) value);
         accessor.markPrimAsSet(obj, primMarkProfile);
       } else {
@@ -204,6 +211,8 @@ public abstract class CachedSlotWrite extends AbstractDispatchNode {
     @Override
     public void doWrite(final SObject obj, final Object value) {
       if (value instanceof Double) {
+        System.out.println("-slot "+this.slot.getName() + " location "+this.slot.getSourceSection().toString() +" value "+value.toString() + " sourceAssignment "+this.getSourceSection().toString() + " obj "+obj.getSOMClass());
+        RecordAssignment.recordGlobalAssignment(value, this.getSourceSection(),slot);
         accessor.write(obj, (double) value);
         if (!accessor.isPrimitiveSet(obj, primMarkProfile)) {
           CompilerDirectives.transferToInterpreterAndInvalidate();

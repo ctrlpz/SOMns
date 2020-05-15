@@ -30,7 +30,7 @@ import tools.concurrency.TraceBuffer;
  * @since 1.7
  * @author Doug Lea
  */
-public final class SafepointPhaser {
+public final class  SafepointPhaser {
   /*
    * This class implements an extension of X10 "clocks". Thanks to
    * Vijay Saraswat for the idea, and to Vivek Sarkar for

@@ -1,8 +1,10 @@
 package tools.debugger.message;
 
 import java.lang.reflect.Array;
+import java.net.URI;
 import java.util.ArrayList;
 
+import bd.source.SourceCoordinate;
 import com.oracle.truffle.api.source.Source;
 import com.oracle.truffle.api.source.SourceSection;
 import org.graalvm.collections.MapCursor;
@@ -46,6 +48,7 @@ public final class VariablesResponse extends Response {
     private final int line;
     private final int col;
     private final int charlen;
+    private final URI URI;
 
 
     Variable(final String name, final String value, final long globalVarRef,
@@ -62,10 +65,12 @@ public final class VariablesResponse extends Response {
         this.line = 0;
         this.col = 0;
         this.charlen = 0;
+        this.URI = null;
       } else {
         this.line = source.getStartLine();
         this.col = source.getStartColumn();
         this.charlen = source.getCharLength();
+        this.URI = source.getSource().getURI();
       }
 
       }

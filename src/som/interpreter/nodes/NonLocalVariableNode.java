@@ -145,21 +145,21 @@ public abstract class NonLocalVariableNode extends ContextualNode
     @Specialization(guards = "isBoolKind(frame)")
     public final boolean writeBoolean(final VirtualFrame frame, final boolean expValue) {
      determineContext(frame).setBoolean(slot, expValue);
-      RecordAssignment.recordAssignment(frame, expValue, sourceSection, var);
+      RecordAssignment.recordAssignment( expValue, sourceSection, var);
       return expValue;
     }
 
     @Specialization(guards = "isLongKind(frame)")
     public final long writeLong(final VirtualFrame frame, final long expValue) {
       determineContext(frame).setLong(slot, expValue);
-      RecordAssignment.recordAssignment(frame, expValue, sourceSection, var);
+      RecordAssignment.recordAssignment( expValue, sourceSection, var);
       return expValue;
     }
 
     @Specialization(guards = "isDoubleKind(frame)")
     public final double writeDouble(final VirtualFrame frame, final double expValue) {
       determineContext(frame).setDouble(slot, expValue);
-      RecordAssignment.recordAssignment(frame, expValue, sourceSection, var);
+      RecordAssignment.recordAssignment( expValue, sourceSection, var);
       return expValue;
     }
 
@@ -167,7 +167,7 @@ public abstract class NonLocalVariableNode extends ContextualNode
     public final Object writeGeneric(final VirtualFrame frame, final Object expValue) {
       ensureObjectKind();
       determineContext(frame).setObject(slot, expValue);
-      RecordAssignment.recordAssignment(frame, expValue, sourceSection, var);
+      RecordAssignment.recordAssignment( expValue, sourceSection, var);
       return expValue;
     }
 

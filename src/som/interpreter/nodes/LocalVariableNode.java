@@ -153,21 +153,21 @@ public abstract class LocalVariableNode extends ExprWithTagsNode
     public final boolean writeBoolean(final VirtualFrame frame, final boolean expValue) {
       frame.setBoolean(slot, expValue);
       /*for question "why is value of variable ... ... ?*/
-      RecordAssignment.recordAssignment(frame, expValue, sourceSection, var);
+      RecordAssignment.recordAssignment( expValue, sourceSection, var);
       return expValue;
     }
 
     @Specialization(guards = "isLongKind(expValue)")
     public final long writeLong(final VirtualFrame frame, final long expValue) {
       frame.setLong(slot, expValue);
-      RecordAssignment.recordAssignment(frame, expValue, sourceSection, var);
+      RecordAssignment.recordAssignment(expValue, sourceSection, var);
       return expValue;
     }
 
     @Specialization(guards = "isDoubleKind(expValue)")
     public final double writeDouble(final VirtualFrame frame, final double expValue) {
       frame.setDouble(slot, expValue);
-      RecordAssignment.recordAssignment(frame, expValue, sourceSection, var);
+      RecordAssignment.recordAssignment( expValue, sourceSection, var);
       return expValue;
     }
 
@@ -175,7 +175,7 @@ public abstract class LocalVariableNode extends ExprWithTagsNode
     public final Object writeGeneric(final VirtualFrame frame, final Object expValue) {
       descriptor.setFrameSlotKind(slot, FrameSlotKind.Object);
       frame.setObject(slot, expValue);
-      RecordAssignment.recordAssignment(frame, expValue, sourceSection, var);
+      RecordAssignment.recordAssignment(expValue, sourceSection, var);
       int i = frame.hashCode();
       System.out.println(frame.toString());
       return expValue;
