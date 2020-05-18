@@ -67,7 +67,7 @@ public class RecordAssignment {
 
     public static void recordGlobalAssignment(final Object expValue, SourceSection assignmentSource, MixinDefinition.SlotDefinition slot){
         if(doRecord() && !slot.isImmutable()){
-            KomposTrace.assignment(AssignmentTypes.GLOBAL, slot.getSourceSection(), assignmentSource, Types.toDebuggerString(expValue));
+            KomposTrace.assignment(AssignmentTypes.GLOBAL, slot.getSourceSection(), assignmentSource, expValue.toString());//Types.toDebuggerString(expValue));
         }
     }
 
