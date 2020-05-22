@@ -229,7 +229,7 @@ public abstract class Variable implements bd.inlining.Variable<ExpressionNode> {
         final SourceSection source) {
       transferToInterpreterAndInvalidate("Variable.getWriteNode");
       ExpressionNode node;
-      System.out.println("source: " + source);
+//      System.out.println("source: " + source);
       if (contextLevel == 0) {
         node = LocalVariableWriteNodeGen.create(this, valueExpr);
       } else {
