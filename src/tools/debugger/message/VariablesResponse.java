@@ -61,7 +61,6 @@ public final class VariablesResponse extends Response {
       this.indexedVariables = indexed;
 
       if(source == null){
-        System.out.println(0);
         this.line = 0;
         this.col = 0;
         this.charlen = 0;
@@ -102,7 +101,6 @@ public final class VariablesResponse extends Response {
       MapCursor<SlotDefinition, StorageLocation> e =
           o.getObjectLayout().getStorageLocations().getEntries();
       while (e.advance()) {
-        System.out.println("Source variable: " + e.getKey().getSourceSection());
         results.add(createVariable(e.getKey().getName().getString(), e.getValue().read(o),
             suspension, e.getKey().getSourceSection()));
       }

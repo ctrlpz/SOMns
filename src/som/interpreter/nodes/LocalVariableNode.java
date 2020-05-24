@@ -177,7 +177,6 @@ public abstract class LocalVariableNode extends ExprWithTagsNode
       frame.setObject(slot, expValue);
       RecordAssignment.recordAssignment(expValue, sourceSection, var);
       int i = frame.hashCode();
-      System.out.println(frame.toString());
       return expValue;
     }
 
