@@ -101,6 +101,7 @@ public final class VariablesResponse extends Response {
       MapCursor<SlotDefinition, StorageLocation> e =
           o.getObjectLayout().getStorageLocations().getEntries();
       while (e.advance()) {
+//        System.out.println("Source variable: " + e.getKey().getSourceSection());
         results.add(createVariable(e.getKey().getName().getString(), e.getValue().read(o),
             suspension, e.getKey().getSourceSection()));
       }
