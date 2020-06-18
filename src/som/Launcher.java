@@ -10,6 +10,7 @@ import org.graalvm.polyglot.Value;
 import som.interpreter.SomLanguage;
 import som.interpreter.objectstorage.StorageAccessor;
 import som.vm.VmSettings;
+import tools.concurrency.TracingActors;
 import tools.concurrency.TracingActors.ReplayActor;
 import tools.concurrency.TracingBackend;
 import tools.parser.KomposTraceParser;
@@ -43,6 +44,11 @@ public final class Launcher {
       Value result = context.eval(START);
       exitCode = result.as(Integer.class);
     } finally {
+      if (VmSettings.TRUFFLE_DEBUGGER_ENABLED) {
+        //Stop execution for all suspended actors if any
+        TracingActors.TracingActor.stopActorsIfSuspended();
+      }
+
       context.eval(SHUTDOWN);
       context.close();
       finalizeExecution(exitCode);
