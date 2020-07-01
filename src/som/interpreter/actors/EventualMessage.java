@@ -317,10 +317,7 @@ public abstract class EventualMessage {
 
       //save promise resolution entry corresponding to the promise to which the message is sent
       if (VmSettings.ACTOR_ASYNC_STACK_TRACE_STRUCTURE) {
-        assert maybeEntry != null && maybeEntry instanceof ShadowStackEntry.EntryForPromiseResolution;
-        assert args[args.length - 1] instanceof ShadowStackEntry.EntryAtMessageSend;
-        ShadowStackEntry.EntryAtMessageSend currentStack = (ShadowStackEntry.EntryAtMessageSend) args[args.length - 1];
-        SArguments.addEntryForPromiseResolution(currentStack, (ShadowStackEntry.EntryForPromiseResolution)maybeEntry);
+        SArguments.saveCausalEntryForPromiseInAsyncStack(maybeEntry, args[args.length - 1]);
       }
     }
 
@@ -398,7 +395,6 @@ public abstract class EventualMessage {
     @Override
     public void resolve(final Object rcvr, final Actor target, final Actor sendingActor,
                         final Object maybeEntry) {
-      assert maybeEntry != null || !VmSettings.ACTOR_ASYNC_STACK_TRACE_STRUCTURE;
       setPromiseValue(rcvr, sendingActor, maybeEntry);
     }
 
@@ -411,13 +407,11 @@ public abstract class EventualMessage {
     private void setPromiseValue(final Object value, final Actor resolvingActor,
                                  final Object maybeEntry) {
       args[PROMISE_VALUE_IDX] = originalSender.wrapForUse(value, resolvingActor, null);
-      //save promise resolution entry corresponding to the promise to which this callback is registered
+      //save promise resolution entry corresponding to the promise to which this callback is registered on
       if (VmSettings.ACTOR_ASYNC_STACK_TRACE_STRUCTURE) {
-        assert maybeEntry != null && maybeEntry instanceof ShadowStackEntry;
-        assert args[args.length - 1] instanceof ShadowStackEntry;
-        ShadowStackEntry currentStack = (ShadowStackEntry) args[args.length - 1];
-        SArguments.addEntryForPromiseResolution(currentStack, (ShadowStackEntry) maybeEntry);
+        SArguments.saveCausalEntryForPromiseInAsyncStack(maybeEntry, args[args.length - 1]);
       }
+
       if (VmSettings.SNAPSHOTS_ENABLED) {
         this.messageId = Math.min(this.messageId,
             ActorProcessingThread.currentThread().getSnapshotId());
