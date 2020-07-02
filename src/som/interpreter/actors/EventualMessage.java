@@ -50,6 +50,7 @@ public abstract class EventualMessage {
   protected EventualMessage(final Object[] args,
       final SResolver resolver, final RootCallTarget onReceive,
       final boolean haltOnReceive, final boolean haltOnResolver) {
+
     this.args = args;
     this.resolver = resolver;
     this.onReceive = onReceive;
@@ -381,6 +382,7 @@ public abstract class EventualMessage {
      * The promise on which this callback is registered on.
      */
     @CompilationFinal protected SPromise promise;
+    @CompilationFinal protected SBlock callback;
 
     protected AbstractPromiseCallbackMessage(final Actor owner, final SBlock callback,
         final SResolver resolver, final RootCallTarget onReceive,
@@ -390,6 +392,7 @@ public abstract class EventualMessage {
               resolver, onReceive,
           triggerMessageReceiverBreakpoint, triggerPromiseResolverBreakpoint);
       this.promise = promiseRegisteredOn;
+      this.callback = callback;
     }
 
     @Override
@@ -409,7 +412,14 @@ public abstract class EventualMessage {
       args[PROMISE_VALUE_IDX] = originalSender.wrapForUse(value, resolvingActor, null);
       //save promise resolution entry corresponding to the promise to which this callback is registered on
       if (VmSettings.ACTOR_ASYNC_STACK_TRACE_STRUCTURE) {
-        SArguments.saveCausalEntryForPromiseInAsyncStack(maybeEntry, args[args.length - 1]);
+        boolean promiseGroup = this.callback.getMethod().getInvokable().getName().startsWith("PromiseGroup");
+//        System.out.println("owner "+promise.getOwner().getId() + " group "+promiseGroup + " maybe "+((ShadowStackEntry)maybeEntry).getSourceSection() + " callback "+ ((ShadowStackEntry)args[args.length - 1]).getSourceSection());
+
+        if (promiseGroup) {
+          SArguments.setEntryForPromiseGroup(maybeEntry, args[args.length - 1], promise.getOwner().getId());
+        } else {
+          SArguments.saveCausalEntryForPromiseInAsyncStack(maybeEntry, args[args.length - 1]);
+        }
       }
 
       if (VmSettings.SNAPSHOTS_ENABLED) {
