@@ -4,19 +4,23 @@ import java.util.concurrent.ForkJoinPool;
 
 import com.oracle.truffle.api.CompilerDirectives.CompilationFinal;
 import com.oracle.truffle.api.dsl.Specialization;
+import com.oracle.truffle.api.frame.MaterializedFrame;
 import com.oracle.truffle.api.frame.VirtualFrame;
 import com.oracle.truffle.api.instrumentation.GenerateWrapper;
 import com.oracle.truffle.api.instrumentation.ProbeNode;
+import com.oracle.truffle.api.nodes.Node;
 import com.oracle.truffle.api.profiles.ValueProfile;
 import com.oracle.truffle.api.source.SourceSection;
 
 import bd.primitives.nodes.WithContext;
 import som.VM;
+import som.interpreter.SArguments;
 import som.interpreter.actors.SPromise.Resolution;
 import som.interpreter.actors.SPromise.SResolver;
 //import som.interpreter.nodes.nary.QuaternaryExpressionNode;
 import som.interpreter.nodes.nary.UnaryExpressionNode;
 import som.vm.VmSettings;
+import tools.asyncstacktraces.ShadowStackEntry;
 import tools.concurrency.KomposTrace;
 
 import com.oracle.truffle.api.dsl.NodeChild;
@@ -108,7 +112,7 @@ public abstract class AbstractPromiseResolutionNode extends EagerlySpecializable
   public SResolver chainedPromise(final VirtualFrame frame,
       final SResolver resolver, final SPromise promiseValue, final Object maybeEntry,
       final boolean haltOnResolver, final boolean haltOnResolution) {
-    chainPromise(resolver, promiseValue, maybeEntry, haltOnResolver, haltOnResolution);
+    chainPromise(frame, resolver, promiseValue, maybeEntry, haltOnResolver, haltOnResolution);
     return resolver;
   }
 
@@ -116,7 +120,7 @@ public abstract class AbstractPromiseResolutionNode extends EagerlySpecializable
     return !(result instanceof SPromise);
   }
 
-  protected void chainPromise(final SResolver resolver,
+  protected void chainPromise(final VirtualFrame frame, final SResolver resolver,
                               final SPromise promiseValue, final Object maybeEntry,
                               final boolean haltOnResolver, final boolean haltOnResolution) {
     assert resolver.assertNotCompleted();
@@ -130,7 +134,7 @@ public abstract class AbstractPromiseResolutionNode extends EagerlySpecializable
       Resolution state = promiseValue.getResolutionStateUnsync();
       if (SPromise.isCompleted(state)) {
         resolvePromise(state, resolver, promiseValue.getValueUnsync(), maybeEntry,
-            haltOnResolution);
+            haltOnResolution, frame, this);
       } else {
         synchronized (promiseToBeResolved) { // TODO: is this really deadlock free?
           if (haltOnResolution || promiseValue.getHaltOnResolution()) {
@@ -144,20 +148,20 @@ public abstract class AbstractPromiseResolutionNode extends EagerlySpecializable
 
   protected void resolvePromise(final Resolution type,
       final SResolver resolver, final Object result, final Object maybeEntry,
-      final boolean haltOnResolution) {
+      final boolean haltOnResolution, final VirtualFrame frame, Node expression) {
     SPromise promise = resolver.getPromise();
     Actor current = EventualMessage.getActorCurrentMessageIsExecutionOn();
 
     resolve(type, wrapper, promise, result, current, actorPool, maybeEntry, haltOnResolution,
-        whenResolvedProfile);
+        whenResolvedProfile, frame, expression);
   }
 
   public static void resolve(final Resolution type,
       final WrapReferenceNode wrapper, final SPromise promise,
       final Object result, final Actor current, final ForkJoinPool actorPool, final Object maybeEntry,
-      final boolean haltOnResolution, final ValueProfile whenResolvedProfile) {
+      final boolean haltOnResolution, final ValueProfile whenResolvedProfile, final VirtualFrame frame, Node expression) {
     Object wrapped = wrapper.execute(result, promise.owner, current);
     SResolver.resolveAndTriggerListenersUnsynced(type, result, wrapped, promise,
-        current, actorPool, maybeEntry, haltOnResolution, whenResolvedProfile);
+        current, actorPool, maybeEntry, haltOnResolution, whenResolvedProfile, frame, expression);
   }
 }

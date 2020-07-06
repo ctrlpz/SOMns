@@ -5,14 +5,19 @@ import java.util.concurrent.ForkJoinPool;
 
 import com.oracle.truffle.api.CompilerDirectives.CompilationFinal;
 import com.oracle.truffle.api.CompilerDirectives.TruffleBoundary;
+import com.oracle.truffle.api.frame.MaterializedFrame;
+import com.oracle.truffle.api.frame.VirtualFrame;
+import com.oracle.truffle.api.nodes.Node;
 import com.oracle.truffle.api.profiles.ValueProfile;
 import com.oracle.truffle.api.source.SourceSection;
 
+import som.interpreter.SArguments;
 import som.interpreter.actors.EventualMessage.PromiseMessage;
 import som.interpreter.objectstorage.ClassFactory;
 import som.vm.VmSettings;
 import som.vmobjects.SClass;
 import som.vmobjects.SObjectWithClass;
+import tools.asyncstacktraces.ShadowStackEntry;
 import tools.concurrency.KomposTrace;
 import tools.concurrency.TracingActivityThread;
 import tools.concurrency.TracingActors.TracingActor;
@@ -400,11 +405,11 @@ public class SPromise extends SObjectWithClass {
      */
     // TODO: solve the TODO and then remove the TruffleBoundary, this might even need to go
     // into a node
-    @TruffleBoundary
+//    @TruffleBoundary
     protected static void resolveChainedPromisesUnsync(final Resolution type,
         final SPromise promise, final Object result, final Actor current,
         final ForkJoinPool actorPool, final Object maybeEntry, final boolean haltOnResolution,
-        final ValueProfile whenResolvedProfile) {
+        final ValueProfile whenResolvedProfile, final VirtualFrame frame, final Node expression) {
       // TODO: we should change the implementation of chained promises to
       // always move all the handlers to the other promise, then we
       // don't need to worry about traversing the chain, which can
@@ -414,22 +419,38 @@ public class SPromise extends SObjectWithClass {
         SPromise chainedPromise = promise.chainedPromise;
         promise.chainedPromise = null;
         Object wrapped = chainedPromise.owner.wrapForUse(result, current, null);
+
+
+        ShadowStackEntry resolutionEntry = null;
+          if (VmSettings.ACTOR_ASYNC_STACK_TRACE_STRUCTURE) {
+//            MaterializedFrame context = promise.getContext();
+
+            ShadowStackEntry entry = SArguments.getShadowStackEntry(frame.getArguments());
+            assert !VmSettings.ACTOR_ASYNC_STACK_TRACE_STRUCTURE || maybeEntry != null;
+            ShadowStackEntry.EntryForPromiseResolution.ResolutionLocation location = ShadowStackEntry.EntryForPromiseResolution.ResolutionLocation.CHAINED;
+            location.setArg(", promise: "+promise.toString());
+            resolutionEntry =
+                    ShadowStackEntry.createAtPromiseResolution(entry, expression, location);
+
+            SArguments.saveCausalEntryForPromise(maybeEntry, resolutionEntry);
+          }
+
         resolveAndTriggerListenersUnsynced(type, result, wrapped,
-            chainedPromise, current, actorPool, maybeEntry,
-            chainedPromise.haltOnResolution, whenResolvedProfile);
+            chainedPromise, current, actorPool, resolutionEntry,
+            chainedPromise.haltOnResolution, whenResolvedProfile, frame, expression);
         resolveMoreChainedPromisesUnsynced(type, promise, result, current,
-            actorPool, maybeEntry, haltOnResolution, whenResolvedProfile);
+            actorPool, resolutionEntry, haltOnResolution, whenResolvedProfile, frame, expression);
       }
     }
 
     /**
      * Resolve the other promises that has been chained to the first promise.
      */
-    @TruffleBoundary
+//    @TruffleBoundary
     private static void resolveMoreChainedPromisesUnsynced(final Resolution type,
         final SPromise promise, final Object result, final Actor current,
         final ForkJoinPool actorPool, final Object maybeEntry, final boolean haltOnResolution,
-        final ValueProfile whenResolvedProfile) {
+        final ValueProfile whenResolvedProfile, final VirtualFrame frame, final Node expression) {
       if (promise.chainedPromiseExt != null) {
         ArrayList<SPromise> chainedPromiseExt = promise.chainedPromiseExt;
         promise.chainedPromiseExt = null;
@@ -437,7 +458,7 @@ public class SPromise extends SObjectWithClass {
         for (SPromise p : chainedPromiseExt) {
           Object wrapped = p.owner.wrapForUse(result, current, null);
           resolveAndTriggerListenersUnsynced(type, result, wrapped, p, current,
-              actorPool, maybeEntry, haltOnResolution, whenResolvedProfile);
+              actorPool, maybeEntry, haltOnResolution, whenResolvedProfile, frame, expression);
         }
       }
     }
@@ -450,7 +471,7 @@ public class SPromise extends SObjectWithClass {
     protected static void resolveAndTriggerListenersUnsynced(final Resolution type,
         final Object result, final Object wrapped, final SPromise p, final Actor current,
         final ForkJoinPool actorPool, final Object maybeEntry, final boolean haltOnResolution,
-        final ValueProfile whenResolvedProfile) {
+        final ValueProfile whenResolvedProfile, final VirtualFrame frame, Node expression) {
       assert !(result instanceof SPromise);
 
       if (VmSettings.ACTOR_TRACING || VmSettings.REPLAY) {
@@ -491,7 +512,7 @@ public class SPromise extends SObjectWithClass {
           scheduleAllOnErrorUnsync(p, result, current, actorPool, maybeEntry, haltOnResolution);
         }
         resolveChainedPromisesUnsync(type, p, result, current, actorPool, maybeEntry, haltOnResolution,
-            whenResolvedProfile);
+            whenResolvedProfile, frame, expression);
       }
     }
 
