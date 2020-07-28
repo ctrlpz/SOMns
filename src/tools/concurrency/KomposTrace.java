@@ -1,25 +1,24 @@
 package tools.concurrency;
 
 import com.oracle.truffle.api.CompilerDirectives.TruffleBoundary;
+import com.oracle.truffle.api.source.Source;
 import com.oracle.truffle.api.source.SourceSection;
 
 import bd.source.SourceCoordinate;
 import som.interpreter.Types;
 import som.interpreter.actors.Actor;
+import som.interpreter.actors.SPromise;
+import som.interpreter.actors.SchedulePromiseHandlerNode;
 import som.interpreter.nodes.dispatch.Dispatchable;
 import som.vm.Activity;
 import som.vm.ObjectSystem;
 import som.vm.Symbols;
 import som.vm.VmSettings;
-import som.vmobjects.SInvokable;
-import som.vmobjects.SSymbol;
+import som.vmobjects.*;
+//import sun.jvm.hotspot.oops.Mark;
+import tools.TraceData;
 import tools.debugger.PrimitiveCallOrigin;
-import tools.debugger.entities.ActivityType;
-import tools.debugger.entities.DynamicScopeType;
-import tools.debugger.entities.Implementation;
-import tools.debugger.entities.PassiveEntityType;
-import tools.debugger.entities.ReceiveOp;
-import tools.debugger.entities.SendOp;
+import tools.debugger.entities.*;
 
 
 public class KomposTrace {
@@ -81,6 +80,7 @@ public class KomposTrace {
     Thread current = Thread.currentThread();
 
     assert current instanceof TracingActivityThread;
+    String name = Types.toDebuggerString(value);
     TracingActivityThread t = (TracingActivityThread) current;
 
     String name = Types.toDebuggerString(value);
@@ -144,6 +144,13 @@ public class KomposTrace {
 
   public static void recordSuspendedActivityByDebugger(TracingActivityThread t) {
     ((KomposTraceBuffer) t.getBuffer()).recordPausedActivity(t.getActivity());
+  }
+
+  public static void assignment(RecordAssignment.AssignmentTypes type, SourceSection variable, SourceSection assignment, String value){
+    TracingActivityThread t = getThread();
+    byte[] valueBytes = value.getBytes();
+    ((KomposTraceBuffer) t.getBuffer()).recordAssignment(type, variable, assignment, t.getActivity(), valueBytes);
+
   }
 
   public static class KomposTraceBuffer extends TraceBuffer {
@@ -360,16 +367,15 @@ public class KomposTrace {
 
       final int start = position;
       put(op.getId());
-      putLong(entityId);
+      putLong(entityId); /*put something in the trace*/
       putLong(targetId);
       putLong(targetActorId);
       putShort(symbolId);
-
       if (VmSettings.KOMPOS_TRACING) {
          writeSourceSection(msgSourceCoordinate);
       }
 
-      if(value != null) {
+      if(null != value) {
         putInt(value.length);
         for (byte b : value) {
           put(b);
@@ -377,6 +383,22 @@ public class KomposTrace {
       }
 
       assert position == start + requiredSpace;
+    }
+
+    public void recordAssignment(final RecordAssignment.AssignmentTypes type,  final SourceSection variableId, final SourceSection assignmentPlace, final Activity current, byte[] newValue){
+      int requiredSpace = 2 * TraceData.SOURCE_SECTION_SIZE + 1 + newValue.length + 4;
+      ensureSufficientSpace(requiredSpace, current);
+
+      final int start = position;
+      put(type.getId());
+      writeSourceSection(variableId);
+      writeSourceSection(assignmentPlace);
+      putInt(newValue.length);
+      for(byte b : newValue){
+        put(b);
+      }
+      assert position == start + requiredSpace;
+
     }
 
     public static class SyncedKomposTraceBuffer extends KomposTraceBuffer {
@@ -387,45 +409,51 @@ public class KomposTrace {
 
       @Override
       public synchronized void recordActivityCreation(final ActivityType entity,
-          final long activityId, final short symbolId,
-          final SourceSection section, final Activity current) {
+                                                      final long activityId, final short symbolId,
+                                                      final SourceSection section, final Activity current) {
         super.recordActivityCreation(entity, activityId, symbolId, section, current);
       }
 
       @Override
       public synchronized void recordScopeStart(final DynamicScopeType entity,
-          final long scopeId, final SourceSection section, final Activity current) {
+                                                final long scopeId, final SourceSection section, final Activity current) {
         super.recordScopeStart(entity, scopeId, section, current);
       }
 
       @Override
       public synchronized void recordScopeEnd(final DynamicScopeType entity,
-          final Activity current) {
+                                              final Activity current) {
         super.recordScopeEnd(entity, current);
       }
 
       @Override
       public synchronized void recordPassiveEntityCreation(final PassiveEntityType entity,
-          final long entityId, final SourceSection section, final Activity current) {
+                                                           final long entityId, final SourceSection section, final Activity current) {
         super.recordPassiveEntityCreation(entity, entityId, section, current);
       }
 
       @Override
       public synchronized void recordActivityCompletion(final ActivityType entity,
-          final Activity current) {
+                                                        final Activity current) {
         super.recordActivityCompletion(entity, current);
       }
 
       @Override
       public synchronized void recordReceiveOperation(final ReceiveOp op,
-          final long sourceId, final Activity current) {
+                                                      final long sourceId, final Activity current) {
         super.recordReceiveOperation(op, sourceId, current);
       }
 
       @Override
       public synchronized void recordSendOperation(final SendOp op,
-          final long entityId, final long targetId, final Activity current, final short symbol, final long targetActorId, final SourceSection section, byte[] value) {
+                                                   final long entityId, final long targetId, final Activity current, final short symbol, final long targetActorId, final SourceSection section, byte[] value) {
         super.recordSendOperation(op, entityId, targetId, current, symbol, targetActorId, section, value);
+      }
+
+
+      @Override
+      public synchronized void recordAssignment(final RecordAssignment.AssignmentTypes type, final SourceSection variableId, SourceSection assignmentPlace, final Activity current, byte[] newValue) {
+        super.recordAssignment(type, variableId, assignmentPlace, current, newValue);
       }
     }
   }

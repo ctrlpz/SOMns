@@ -16,6 +16,7 @@ import bd.tools.nodes.Invocation;
 import som.compiler.Variable.Local;
 import som.vm.constants.Nil;
 import som.vmobjects.SSymbol;
+import tools.concurrency.RecordAssignment;
 import tools.debugger.Tags.LocalVariableTag;
 import tools.dym.Tags.LocalVarRead;
 import tools.dym.Tags.LocalVarWrite;
@@ -143,19 +144,22 @@ public abstract class NonLocalVariableNode extends ContextualNode
 
     @Specialization(guards = "isBoolKind(frame)")
     public final boolean writeBoolean(final VirtualFrame frame, final boolean expValue) {
-      determineContext(frame).setBoolean(slot, expValue);
+     determineContext(frame).setBoolean(slot, expValue);
+      RecordAssignment.recordAssignment( expValue, sourceSection, var);
       return expValue;
     }
 
     @Specialization(guards = "isLongKind(frame)")
     public final long writeLong(final VirtualFrame frame, final long expValue) {
       determineContext(frame).setLong(slot, expValue);
+      RecordAssignment.recordAssignment( expValue, sourceSection, var);
       return expValue;
     }
 
     @Specialization(guards = "isDoubleKind(frame)")
     public final double writeDouble(final VirtualFrame frame, final double expValue) {
       determineContext(frame).setDouble(slot, expValue);
+      RecordAssignment.recordAssignment( expValue, sourceSection, var);
       return expValue;
     }
 
@@ -163,6 +167,7 @@ public abstract class NonLocalVariableNode extends ContextualNode
     public final Object writeGeneric(final VirtualFrame frame, final Object expValue) {
       ensureObjectKind();
       determineContext(frame).setObject(slot, expValue);
+      RecordAssignment.recordAssignment( expValue, sourceSection, var);
       return expValue;
     }
 

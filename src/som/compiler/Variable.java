@@ -25,7 +25,9 @@ import som.interpreter.nodes.LocalVariableNodeFactory.LocalVariableWriteNodeGen;
 import som.interpreter.nodes.NonLocalVariableNodeFactory.NonLocalVariableReadNodeGen;
 import som.interpreter.nodes.NonLocalVariableNodeFactory.NonLocalVariableWriteNodeGen;
 import som.vm.Symbols;
+import som.vm.VmSettings;
 import som.vmobjects.SSymbol;
+import tools.concurrency.TracingActivityThread;
 
 
 /**
@@ -55,7 +57,9 @@ public abstract class Variable implements bd.inlining.Variable<ExpressionNode> {
   Variable(final SSymbol name, final SourceSection source) {
     this.name = name;
     this.source = source;
+
   }
+
 
   /** Gets the name including lexical location. */
   public final SSymbol getQualifiedName() {

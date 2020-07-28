@@ -181,7 +181,7 @@ public abstract class StorageLocation {
     public CachedSlotWrite getWriteNode(final SlotDefinition slot,
         final CheckSObject guard, final AbstractDispatchNode next,
         final boolean isSet) {
-      return new ObjectSlotWrite(accessor, guard, next);
+      return new ObjectSlotWrite(accessor, guard, next, slot);
     }
 
     /**

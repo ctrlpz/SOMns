@@ -34,4 +34,8 @@ public class Marker {
 
   public static final byte PROMISE_MSG_SEND = 22;
 
+  /*for question*/
+  public static final byte GLOBAL_ASSIGNMENT = 23;
+  public static final byte NON_GLOBAL_ASSIGNMENT = 24;
+
 }

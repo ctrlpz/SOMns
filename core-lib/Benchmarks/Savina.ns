@@ -2054,7 +2054,7 @@ class Savina usingPlatform: platform andHarness: harness = Value (
     )
 
     class Worker new: master = (
-    | private master = master.
+    | private master = master
     |)(
       public work: l and: r and: h = (
         | n accumArea |
