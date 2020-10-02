@@ -148,10 +148,10 @@ public class Suspension {
   /**
    * Suspend the current thread, and process tasks from the front-end.
    */
-  public void suspend(CompletableFuture<Long> suspendedFuture) {
+  public void suspend() {
     // don't participate in safepoints while being suspended
     ObjectTransitionSafepoint.INSTANCE.unregister();
-    activityThread.markThreadAsSuspendedInDebugger(suspendedFuture);
+    activityThread.markThreadAsSuspendedInDebugger();
 
     boolean continueWaiting = true;
     while (continueWaiting) {
