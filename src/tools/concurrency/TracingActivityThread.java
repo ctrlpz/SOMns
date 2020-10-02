@@ -70,9 +70,8 @@ public abstract class TracingActivityThread extends ForkJoinWorkerThread {
     }
   }
 
-  public synchronized void markThreadAsSuspendedInDebugger(CompletableFuture<Long> suspendedFuture) {
+  public synchronized void markThreadAsSuspendedInDebugger() {
     suspendedInDebugger = true;
-    suspendedFuture.complete(this.getActivity().getId());
   }
 
   public synchronized void markThreadAsResumedFromDebugger() {
