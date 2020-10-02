@@ -73,8 +73,6 @@ public class TracingActors {
             KomposTrace.messageReception(msgInMailbox.getMessageId(), tracingActivityThread);
           }
         }
-        //forceSwap to ensure that message information is sent, although the actor is paused
-        TracingBackend.forceSwapBuffers();
       }
     }
 
