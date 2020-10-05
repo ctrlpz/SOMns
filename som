@@ -208,7 +208,11 @@ if not args.interpreter and not java_bin.startswith(BASE_DIR + '/libs/jvmci') an
 CLASSPATH = (BASE_DIR + '/build/classes:'
            + BASE_DIR + '/libs/black-diamonds/build/classes:'
            + TRUFFLE_DIR + '/truffle/mxbuild/dists/jdk1.8/truffle-debug.jar:'
-           + BASE_DIR + '/libs/somns-deps.jar')
+           + BASE_DIR + '/libs/Java-WebSocket-1.5.1.jar:'
+           + BASE_DIR + '/libs/slf4j-api-1.7.25.jar:'
+           + BASE_DIR + '/libs/slf4j-simple-1.7.25.jar:'
+           + BASE_DIR + '/libs/somns-deps.jar'
+           )
 
 BOOT_CLASSPATH = ('-Xbootclasspath/a:'
              + TRUFFLE_DIR + '/sdk/mxbuild/dists/jdk1.8/graal-sdk.jar:'
