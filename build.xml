@@ -78,7 +78,7 @@
     <path id="common.cp">
         <pathelement location="${classes.dir}" />
         <pathelement location="${bd.dir}/build/classes" />
-        <pathelement location="${lib.dir}/Java-WebSocket-1.4.0.jar"/>
+        <pathelement location="${lib.dir}/Java-WebSocket-1.5.1.jar"/>
         <pathelement location="${lib.dir}/slf4j-api-1.7.25.jar"/>
         <pathelement location="${lib.dir}/slf4j-simple-1.7.25.jar"/>
         <pathelement location="${lib.dir}/somns-deps.jar" />
