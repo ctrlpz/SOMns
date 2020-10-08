@@ -14,7 +14,6 @@ import som.interpreter.actors.EventualMessage.PromiseMessage;
 import som.interpreter.actors.SPromise.STracingPromise;
 import som.interpreter.objectstorage.ObjectTransitionSafepoint;
 import som.vm.VmSettings;
-import tools.ObjectBuffer;
 import tools.debugger.WebDebugger;
 import tools.debugger.frontend.Suspension;
 import tools.replay.ReplayRecord;
@@ -66,8 +65,9 @@ public class TracingActors {
 
     public static void saveMessageReceived(Actor actor, EventualMessage message) {
       TracingActivityThread tracingActivityThread = TracingBackend.getTracingActivityThread(actor.getId());
-      if (tracingActivityThread != null && tracingActivityThread.suspendedInDebugger) { //only record new msg for suspended actors
-        KomposTrace.messageReception(message.getMessageId(), tracingActivityThread);
+      if (tracingActivityThread != null) {
+//        System.out.println("saveMessageReceived "+message.getMessageId() + " "+actor.getId());
+        KomposTrace.actorMessageReception(message.getMessageId(), tracingActivityThread);
       }
     }
 
