@@ -11,13 +11,9 @@ import java.util.ArrayList;
 import com.oracle.truffle.api.CompilerDirectives;
 import com.oracle.truffle.api.CompilerDirectives.CompilationFinal;
 import com.oracle.truffle.api.CompilerDirectives.TruffleBoundary;
-import com.oracle.truffle.api.RootCallTarget;
-import com.oracle.truffle.api.Truffle;
 import com.oracle.truffle.api.dsl.GenerateNodeFactory;
 import com.oracle.truffle.api.dsl.NodeFactory;
 import com.oracle.truffle.api.dsl.Specialization;
-import com.oracle.truffle.api.frame.FrameInstance;
-import com.oracle.truffle.api.frame.FrameInstanceVisitor;
 import com.oracle.truffle.api.instrumentation.Tag;
 import com.oracle.truffle.api.interop.ArityException;
 import com.oracle.truffle.api.interop.InteropLibrary;
@@ -25,7 +21,6 @@ import com.oracle.truffle.api.interop.TruffleObject;
 import com.oracle.truffle.api.interop.UnsupportedMessageException;
 import com.oracle.truffle.api.interop.UnsupportedTypeException;
 import com.oracle.truffle.api.library.CachedLibrary;
-import com.oracle.truffle.api.nodes.Node;
 import com.oracle.truffle.api.source.SourceSection;
 
 import bd.primitives.Primitive;
@@ -37,7 +32,6 @@ import som.VM;
 import som.compiler.MixinDefinition;
 import som.interop.ValueConversion.ToSomConversion;
 import som.interop.ValueConversionFactory.ToSomConversionNodeGen;
-import som.interpreter.Invokable;
 import som.interpreter.Types;
 import som.interpreter.actors.Actor.ActorProcessingThread;
 import som.interpreter.actors.EventualMessage;
@@ -72,9 +66,9 @@ import tools.snapshot.deserialization.DeserializationBuffer;
 
 import java.util.Arrays;
 import com.oracle.truffle.api.frame.VirtualFrame;
-import tools.asyncstacktraces.ShadowStackEntry;
-import tools.asyncstacktraces.ShadowStackEntryLoad;
-import tools.asyncstacktraces.StackIterator;
+import tools.debugger.asyncstacktraces.ShadowStackEntry;
+import tools.debugger.asyncstacktraces.ShadowStackEntryLoad;
+import tools.debugger.asyncstacktraces.StackIterator;
 import tools.debugger.frontend.ApplicationThreadStack.StackFrame;
 
 public final class SystemPrims {

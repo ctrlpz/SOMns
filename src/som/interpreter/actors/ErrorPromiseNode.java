@@ -6,11 +6,10 @@ import com.oracle.truffle.api.frame.VirtualFrame;
 
 import bd.primitives.Primitive;
 import som.interpreter.SArguments;
-import som.interpreter.actors.SPromise.Resolution;
 import som.interpreter.actors.SPromise.SResolver;
 import som.interpreter.nodes.nary.BinaryExpressionNode;
 import som.vm.VmSettings;
-import tools.asyncstacktraces.ShadowStackEntry;
+import tools.debugger.asyncstacktraces.ShadowStackEntry;
 
 
 @GenerateNodeFactory

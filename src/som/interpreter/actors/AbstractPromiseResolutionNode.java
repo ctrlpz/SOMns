@@ -4,7 +4,6 @@ import java.util.concurrent.ForkJoinPool;
 
 import com.oracle.truffle.api.CompilerDirectives.CompilationFinal;
 import com.oracle.truffle.api.dsl.Specialization;
-import com.oracle.truffle.api.frame.MaterializedFrame;
 import com.oracle.truffle.api.frame.VirtualFrame;
 import com.oracle.truffle.api.instrumentation.GenerateWrapper;
 import com.oracle.truffle.api.instrumentation.ProbeNode;
@@ -14,13 +13,11 @@ import com.oracle.truffle.api.source.SourceSection;
 
 import bd.primitives.nodes.WithContext;
 import som.VM;
-import som.interpreter.SArguments;
 import som.interpreter.actors.SPromise.Resolution;
 import som.interpreter.actors.SPromise.SResolver;
 //import som.interpreter.nodes.nary.QuaternaryExpressionNode;
 import som.interpreter.nodes.nary.UnaryExpressionNode;
 import som.vm.VmSettings;
-import tools.asyncstacktraces.ShadowStackEntry;
 import tools.concurrency.KomposTrace;
 
 import com.oracle.truffle.api.dsl.NodeChild;

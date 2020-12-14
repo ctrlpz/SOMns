@@ -37,7 +37,7 @@ import som.vm.Primitives;
 import som.vmobjects.SSymbol;
 import tools.dym.Tags.VirtualInvoke;
 import som.interpreter.SArguments;
-import tools.asyncstacktraces.ShadowStackEntry;
+import tools.debugger.asyncstacktraces.ShadowStackEntry;
 
 public final class MessageSendNode {
 

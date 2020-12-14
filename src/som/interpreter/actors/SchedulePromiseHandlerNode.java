@@ -16,7 +16,7 @@ import som.interpreter.actors.EventualMessage.PromiseSendMessage;
 import com.oracle.truffle.api.frame.VirtualFrame;
 import som.interpreter.SArguments;
 import som.vm.VmSettings;
-import tools.asyncstacktraces.ShadowStackEntry;
+import tools.debugger.asyncstacktraces.ShadowStackEntry;
 
 
 /**
